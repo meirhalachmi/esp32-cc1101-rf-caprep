@@ -1,4 +1,4 @@
-# esp32-cc1101-rf-caprep
+# esphome-pacific-fan
 
 Control **Pacific ceiling fans** (433.92 MHz RF remotes) from Home Assistant
 with an ESP32 and a CC1101. The fan, light, dimmer, direction and timers all
@@ -72,7 +72,7 @@ The component is loaded straight from this repository:
 
 ```yaml
 external_components:
-  - source: github://meirhalachmi/esp32-cc1101-rf-caprep
+  - source: github://meirhalachmi/esphome-pacific-fan
     components: [pacific_fan]
 ```
 
