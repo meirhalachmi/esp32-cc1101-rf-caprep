@@ -1,6 +1,7 @@
 #include "pacific_fan.h"
 
 #include <cmath>
+#include <cstring>
 
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -286,9 +287,11 @@ void PacificFanRadio::on_frame_(uint32_t f) {
 void PacificRemote::setup() {
   this->pref_ = global_preferences->make_preference<Phys>(fnv1_hash("pacific_fan_" + to_string(this->address_)));
   Phys saved;
-  if (this->pref_.load(&saved)) {
+  this->restored_ = this->pref_.load(&saved);
+  if (this->restored_) {
     this->phys_ = saved;
-    if (this->phys_.speed < 1 || this->phys_.speed > 6) this->phys_.speed = 1;
+    if (this->phys_.speed > 6) this->phys_.speed = 1;
+    if (this->phys_.speed != 0) this->last_speed_ = this->phys_.speed;
     if (this->phys_.level < 1 || this->phys_.level > this->dim_steps_) this->phys_.level = this->dim_steps_;
   }
   // The physical state is the truth: show it, whatever the entities restored.
@@ -310,6 +313,9 @@ void PacificRemote::setup() {
 void PacificRemote::dump_config() {
   ESP_LOGCONFIG(TAG, "Pacific fan remote 0x%05X (%s parity), %d dimmer steps", (unsigned) this->address_,
                 this->even_parity_ ? "even" : "odd", this->dim_steps_);
+  ESP_LOGCONFIG(TAG, "  state %s: fan %s speed %d%s, light %s level %d", this->restored_ ? "restored" : "NOT restored",
+                ONOFF(this->phys_.fan_on), this->phys_.speed, this->phys_.reverse ? " reverse" : "",
+                ONOFF(this->phys_.light_on), this->phys_.level);
 }
 
 void PacificRemote::loop() {
@@ -328,7 +334,8 @@ void PacificRemote::publish_fan_() {
   if (this->fan_ == nullptr)
     return;
   this->fan_->state = this->phys_.fan_on;
-  this->fan_->speed = this->phys_.speed;
+  this->fan_->speed = this->in_breeze() ? this->last_speed_ : this->phys_.speed;
+  this->fan_->set_breeze(this->in_breeze());
   this->fan_->direction = this->phys_.reverse ? fan::FanDirection::REVERSE : fan::FanDirection::FORWARD;
   this->fan_->publish_state();
 }
@@ -361,10 +368,12 @@ void PacificRemote::on_rx(uint16_t cmd) {
   if (speed) {
     this->phys_.fan_on = true;
     this->phys_.speed = speed;
+    this->last_speed_ = speed;
   } else if (cmd == CMD_TOGGLE) {
     this->phys_.fan_on = !this->phys_.fan_on;
   } else if (cmd == CMD_BREEZE) {
     this->phys_.fan_on = true;
+    this->phys_.speed = 0;
   } else if (cmd == CMD_REVERSE) {
     this->phys_.reverse = !this->phys_.reverse;
   } else {
@@ -397,38 +406,37 @@ void PacificRemote::on_rx(uint16_t cmd) {
 
 void PacificRemote::press(uint16_t cmd) {
   this->send_(cmd);
-  if (cmd == CMD_BREEZE) {
-    this->phys_.fan_on = true;
-    this->save_();
-    this->publish_fan_();
-  } else if (cmd == CMD_TIMER_1H) {
+  if (cmd == CMD_TIMER_1H) {
     this->start_timer_(1);
   } else if (cmd == CMD_TIMER_4H) {
     this->start_timer_(4);
   }
 }
 
-void PacificRemote::fan_control(bool on, int speed, bool reverse) {
+void PacificRemote::fan_control(bool on, int speed, bool breeze, bool reverse) {
   if (!this->ready_)
     return;
   if (speed < 1 || speed > 6)
-    speed = this->phys_.speed;
+    speed = this->last_speed_;
   if (!on)
     this->timer_end_ms_ = 0;
+  uint8_t target = breeze ? 0 : speed;
 
   if (!this->radio_->sync_only) {
     if (reverse != this->phys_.reverse)
       this->send_(CMD_REVERSE);
-    if (on && (!this->phys_.fan_on || speed != this->phys_.speed)) {
-      // A speed command also switches the fan on, so it covers both "turn
-      // on" and "change speed" without relying on the toggle.
-      this->send_(CMD_SPEED[speed - 1]);
+    if (on && (!this->phys_.fan_on || target != this->phys_.speed)) {
+      // Breeze and every speed command also switch the fan on, so they cover
+      // "turn on" as well without relying on the toggle.
+      this->send_(breeze ? CMD_BREEZE : CMD_SPEED[speed - 1]);
     } else if (!on && this->phys_.fan_on) {
       this->send_(CMD_TOGGLE);
     }
   }
   this->phys_.fan_on = on;
-  this->phys_.speed = speed;
+  this->phys_.speed = target;
+  if (!breeze)
+    this->last_speed_ = speed;
   this->phys_.reverse = reverse;
   this->save_();
   this->publish_fan_();
@@ -483,7 +491,14 @@ void PacificFan::control(const fan::FanCall &call) {
   bool on = call.get_state().value_or(this->state);
   int speed = call.get_speed().value_or(this->speed);
   auto dir = call.get_direction().value_or(this->direction);
-  this->remote_->fan_control(on, speed, dir == fan::FanDirection::REVERSE);
+  // Choosing a preset enters Breeze, choosing a speed leaves it, and a plain
+  // "turn on" keeps whichever mode the fan was last in.
+  bool breeze = this->remote_->in_breeze();
+  if (call.has_preset_mode())
+    breeze = strcmp(call.get_preset_mode(), PRESET_BREEZE) == 0;
+  else if (call.get_speed().has_value())
+    breeze = false;
+  this->remote_->fan_control(on, speed, breeze, dir == fan::FanDirection::REVERSE);
 }
 
 light::LightTraits PacificLight::get_traits() {

@@ -2,7 +2,8 @@
 
 One `pacific_fan:` block describes the radio and every fan. Each fan
 becomes a fan entity (6 speeds + direction), a dimmable light, buttons for
-Breeze / Timer 1H / Timer 4H / Light colour, and a timer countdown sensor.
+Timer 1H / Timer 4H / Light colour, and a timer countdown sensor. Breeze is
+a preset mode of the fan entity.
 """
 
 import esphome.codegen as cg
@@ -34,7 +35,6 @@ CONF_SYNC_ONLY = "sync_only"
 CONF_LAST_HEARD = "last_heard"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
-CONF_BREEZE = "breeze"
 CONF_TIMER_1H = "timer_1h"
 CONF_TIMER_4H = "timer_4h"
 CONF_COLOUR = "colour"
@@ -50,7 +50,6 @@ PacificSwitch = pacific_fan_ns.class_("PacificSwitch", switch.Switch, cg.Compone
 
 # (config key, default entity name, command, icon)
 BUTTONS = [
-    (CONF_BREEZE, "{} Fan Breeze", 0x10B, "mdi:weather-windy"),
     (CONF_TIMER_1H, "{} Fan Timer 1H", 0x095, "mdi:timer-outline"),
     (CONF_TIMER_4H, "{} Fan Timer 4H", 0x152, "mdi:timer-outline"),
     (CONF_COLOUR, "{} Light Colour", 0x1D0, "mdi:palette"),
