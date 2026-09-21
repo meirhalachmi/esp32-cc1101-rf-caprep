@@ -108,7 +108,9 @@ static const uint32_t RX_PRESS_GAP_MS = 500;
 #endif
 
 // ── ISR ring buffer: edge durations off GDO2 ────────────────
-#define FAN_RX_RING 1024                       // must stay a power of two
+// A press is ~1100 edges (two keyings of ~9 frames), and the loop can be
+// busy for a while (our own TX, an API call), so leave room for several.
+#define FAN_RX_RING 4096                       // must stay a power of two
 
 struct FanRxRing {
     volatile uint16_t buf[FAN_RX_RING];        // bit15 set = the pulse that ended was a mark
@@ -139,7 +141,11 @@ static void IRAM_ATTR fan_rx_isr() {
 // FanRadio: sits in RX, decodes remote presses, transmits on demand
 // ============================================================
 class FanRadio {
-    struct Fan { uint32_t addr; bool even_parity; };
+    struct Fan {
+        uint32_t addr;
+        bool even_parity;
+        std::function<void(uint16_t cmd)> on_command;   // once per physical press
+    };
     static const int MAX_FANS = 4;
 
     CC1101 radio_;
@@ -173,16 +179,14 @@ class FanRadio {
 
 public:
     bool learn_mode = false;
-    // Called once per physical press from a whitelisted remote.
-    std::function<void(uint32_t addr, uint16_t cmd)> on_command;
 
     FanRadio(int sck, int miso, int mosi, int cs, int gdo0, int gdo2)
         : radio_(sck, miso, mosi, cs, gdo0, gdo2), gdo0_(gdo0), gdo2_(gdo2) {}
 
     bool ready() const { return ready_; }
 
-    void add_fan(uint32_t addr, bool even_parity) {
-        if (nfans_ < MAX_FANS) fans_[nfans_++] = {addr & 0xFFFFF, even_parity};
+    void add_fan(uint32_t addr, bool even_parity, std::function<void(uint16_t)> on_command) {
+        if (nfans_ < MAX_FANS) fans_[nfans_++] = {addr & 0xFFFFF, even_parity, on_command};
     }
 
     bool begin() {
@@ -319,12 +323,33 @@ private:
         }
     }
 
+    // Learn mode reports each distinct frame once per press, valid or not.
+    uint32_t learn_last_ = 0;
+    uint32_t learn_last_ms_ = 0;
+    void log_learn_(uint32_t f, uint32_t addr, uint16_t cmd, bool total_even,
+                    const Fan *fan, bool valid) {
+        uint32_t now = millis();
+        bool repeat = f == learn_last_ && now - learn_last_ms_ < RX_PRESS_GAP_MS;
+        learn_last_ = f;
+        learn_last_ms_ = now;
+        if (repeat) return;
+        ESP_LOGI("fan_rf", "LEARN addr=0x%05X cmd=0x%03X (%s) parity=%s%s", addr, cmd,
+                 fan_cmd_name(cmd), total_even ? "even" : "odd",
+                 fan ? (valid ? "" : "  [known address, WRONG parity]") : "  [unknown address]");
+    }
+
     void on_frame_(uint32_t f) {
         uint32_t addr = (f >> 10) & 0xFFFFF;
         uint16_t cmd = (f >> 1) & 0x1FF;
         bool total_even = !(__builtin_popcount(f) & 1);
         const Fan *fan = find_(addr);
         bool valid = fan && (total_even == fan->even_parity);
+
+        if (learn_mode) log_learn_(f, addr, cmd, total_even, fan, valid);
+        // Only frames that pass the whitelist and parity take part in press
+        // detection: a corrupted frame, or another fan's remote, must not
+        // reset the count of a press that is still arriving.
+        if (!valid) return;
 
         uint32_t now = millis();
         if (f == cand_ && now - cand_last_ms_ < RX_PRESS_GAP_MS) {
@@ -336,14 +361,8 @@ private:
         cand_last_ms_ = now;
         if (cand_n_ != 2) return;                 // not confirmed yet, or already reported
 
-        if (learn_mode)
-            ESP_LOGI("fan_rf", "LEARN addr=0x%05X cmd=0x%03X (%s) parity=%s%s", addr, cmd,
-                     fan_cmd_name(cmd), total_even ? "even" : "odd",
-                     fan ? (valid ? "" : "  [known address, WRONG parity]") : "  [unknown address]");
-        if (!valid) return;
-
         ESP_LOGI("fan_rf", "RX  addr=0x%05X  cmd=0x%03X (%s)", addr, cmd, fan_cmd_name(cmd));
-        if (on_command) on_command(addr, cmd);
+        if (fan->on_command) fan->on_command(cmd);
     }
 };
 
