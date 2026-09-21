@@ -87,6 +87,9 @@ more `fans:` entry.
   `components/pacific_fan/` (the capture firmware includes it from there).
 - WiFi credentials live in `esphome/secrets.yaml` (gitignored).
 
-## Untouched on purpose
+## Removed on purpose
 
-`server.ino` and `homeassistant.yaml` are the legacy Arduino build. Leave them.
+`server.ino`, `homeassistant.yaml` and their images (the legacy Arduino
+capture/replay tool) were deleted once the repo became `esphome-pacific-fan`;
+they remain in git history and in the upstream repo
+(sha1cybr/esp32-cc1101-rf-caprep), which the README credits.

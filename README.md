@@ -5,6 +5,9 @@ with an ESP32 and a CC1101. The fan, light, dimmer, direction and timers all
 become Home Assistant entities, and the original remotes keep working: the
 controller listens to them and keeps Home Assistant in sync.
 
+Based on [sha1cybr/esp32-cc1101-rf-caprep](https://github.com/sha1cybr/esp32-cc1101-rf-caprep)
+by Shai Dvash - see [Credits](#credits).
+
 <p align="center">
   <img src="resources/controller.jpg" width="55%" alt="ESP32 with a CC1101 module and a 433 MHz antenna"/>
   &nbsp;
@@ -185,38 +188,19 @@ receive-only build that logs every frame with its pulse timings; follow
 
 ## Credits
 
+This project is built on
+[**sha1cybr/esp32-cc1101-rf-caprep**](https://github.com/sha1cybr/esp32-cc1101-rf-caprep)
+by Shai Dvash and its contributors, which it was forked from. That repository did the groundwork
+this one stands on: the ESP32 + CC1101 hardware setup, the RF capture/replay
+tool, the first decoding of the Pacific fan protocol (the address + command
+frame and the first command codes) and the first ESPHome version. What was
+added here is the full button map measured from the remote, two-way state
+tracking, and packaging as an ESPHome component.
+
+The original general-purpose Arduino capture/replay tool (`server.ino`, with
+its web UI and REST API) is not part of this repository any more; it lives on
+in the upstream repository.
+
 - CC1101 driver: [CC1101-ESP-Arduino](https://github.com/wladimir-computin/CC1101-ESP-Arduino)
   (MIT), vendored in `components/pacific_fan` because ESPHome's ESP-IDF build
   rejects its library manifest.
-
----
-
-## Legacy Arduino capture/replay tool (`server.ino`)
-
-The original general-purpose RF recorder is still included.
-
-### Setup
-
-### Dependencies
-
-1. [CC1101-ESP-Arduino](https://github.com/wladimir-computin/CC1101-ESP-Arduino) — must be installed manually
-2. ArduinoJson
-3. SPIFFS
-4. ESP32 core libraries (WiFi, WebServer, ESPmDNS)
-
-### Installation
-
-1. Install the Arduino IDE and add ESP32 board support
-2. Install the required libraries:
-   - Clone or download the [CC1101-ESP-Arduino](https://github.com/wladimir-computin/CC1101-ESP-Arduino) library into your Arduino libraries folder
-   - Install ArduinoJson through the Arduino Library Manager
-3. Open `server.ino`, update WiFi credentials, and upload to ESP32
-4. Access the web interface at `http://esp32-rf.local`
-
-### Home Assistant integration
-
-The legacy Arduino sketch exposes a REST API for signal replay. See [homeassistant.yaml](/homeassistant.yaml) for an example configuration.
-
-<p style="text-align: center;">
-    <img src="resources/ha.jpeg" width="30%"/>
-</p>
