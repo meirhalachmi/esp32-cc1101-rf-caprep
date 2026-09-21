@@ -1,0 +1,115 @@
+# ============================================================
+# ESPHome RF CAPTURE firmware - CC1101 @ 433.92 MHz ASK/OOK
+# ============================================================
+# A measurement build, not a controller.  Flash this, walk through
+# CAPTURE_PROCEDURE.md, and collect the logs.  It transmits nothing,
+# so it cannot disturb the fans.
+#
+#   esphome logs esphome_rf_capture.yaml
+#
+# Wiring is identical to the fan controller:
+#   GPIO 18 -> SCK        GPIO 5  -> CSN
+#   GPIO 19 -> MISO       GPIO 25 -> GDO0 (TX data, idle here)
+#   GPIO 23 -> MOSI       GPIO 26 -> GDO2 (RX data)
+# ============================================================
+
+esphome:
+  name: rf-capture
+  friendly_name: RF Capture
+  includes:
+    - cc1101_rf_capture.h
+  libraries:
+    - SPI
+    - CC1101-ESP-Arduino=https://github.com/wischbgr/CC1101-ESP-Arduino.git
+  on_boot:
+    priority: 600
+    then:
+      - lambda: 'rf_cap.begin();'
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# The capture log is the whole product of this firmware, so keep it at INFO
+# and do not let ESPHome's own chatter bury it.
+logger:
+  level: INFO
+  logs:
+    component: WARN
+    sensor: WARN
+    text_sensor: WARN
+    button: WARN
+    switch: WARN
+
+api:
+  encryption:
+    key: "" # TODO: copy from esphome_fan_controller.yaml, or leave empty
+
+ota:
+  - platform: esphome
+    password: "" # TODO: copy from esphome_fan_controller.yaml, or leave empty
+
+wifi:
+  ssid: "" # TODO: same WiFi as the fan controller
+  password: "" # TODO
+  ap:
+    ssid: "RF-Capture-AP"
+    password: "fan12345678"
+
+captive_portal:
+
+web_server:
+  port: 80
+
+# Drain the ISR ring and decode.  A frame is ~45ms and the ring holds 2048
+# edges, so 20ms leaves a very wide margin even under heavy RF noise.
+interval:
+  - interval: 20ms
+    then:
+      - lambda: 'rf_cap.poll();'
+
+# ── Procedure control ───────────────────────────────────────
+
+text_sensor:
+  - platform: template
+    name: "Current Step"
+    id: capture_step
+    icon: "mdi:format-list-numbered"
+    update_interval: never
+
+button:
+  - platform: template
+    name: "Next Button"
+    icon: "mdi:arrow-right-bold"
+    on_press:
+      - lambda: |-
+          rf_cap.next_step();
+          id(capture_step).publish_state(rf_cap.step_label());
+
+  - platform: template
+    name: "Previous Button (redo)"
+    icon: "mdi:arrow-left-bold"
+    on_press:
+      - lambda: |-
+          rf_cap.prev_step();
+          id(capture_step).publish_state(rf_cap.step_label());
+
+  - platform: template
+    name: "Restart Procedure"
+    icon: "mdi:restart"
+    on_press:
+      - lambda: |-
+          rf_cap.reset_steps();
+          id(capture_step).publish_state(rf_cap.step_label());
+
+switch:
+  - platform: template
+    name: "Dump Raw Pulse Timings"
+    icon: "mdi:waveform"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: 'rf_cap.dump_raw = true;'
+    turn_off_action:
+      - lambda: 'rf_cap.dump_raw = false;'

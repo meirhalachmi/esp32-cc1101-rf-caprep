@@ -71,6 +71,14 @@ ESP32 Pin  ->  CC1101 Pin
    ```
 4. The device will appear automatically in Home Assistant if you have the ESPHome integration.
 
+### Mapping the Protocol (`esphome_rf_capture.yaml`)
+
+A second, receive-only ESPHome build is included for protocol work. It parks the
+CC1101 in RX, decodes every OOK frame it hears, and logs the address, command,
+parity evidence and measured pulse timings for each one. Use it to learn a new
+fan's address or to map a remote button that is not in the table above. See
+[CAPTURE_PROCEDURE.md](esphome/CAPTURE_PROCEDURE.md).
+
 ### Adding a New Fan
 
 1. Use the "Record RF Signal" button (web UI or HA) to capture a signal from the fan's remote.
