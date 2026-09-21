@@ -11,7 +11,7 @@ esp32:
     type: arduino          # the CC1101 driver needs the Arduino framework
 
 external_components:
-  - source: github://meirhalachmi/esp32-cc1101-rf-caprep
+  - source: github://meirhalachmi/esphome-pacific-fan
     components: [pacific_fan]
 
 logger:
