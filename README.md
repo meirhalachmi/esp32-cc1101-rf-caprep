@@ -5,9 +5,18 @@ with an ESP32 and a CC1101. The fan, light, dimmer, direction and timers all
 become Home Assistant entities, and the original remotes keep working: the
 controller listens to them and keeps Home Assistant in sync.
 
-<p style="text-align: center;">
-    <img src="resources/module.jpeg" width="50%"/>
+<p align="center">
+  <img src="resources/controller.jpg" width="55%" alt="ESP32 with a CC1101 module and a 433 MHz antenna"/>
+  &nbsp;
+  <img src="resources/dashboard-room.jpg" width="28%" alt="One room in Home Assistant: light, fan and AC"/>
 </p>
+
+## Tested with
+
+**Pacific Strong 42" CCT** DC ceiling fans with the LED light and the
+15-button remote (sold in Israel by מחסני תאורה, SKU 75372015). Other Pacific
+models with a similar remote are likely to work; if yours does not, see
+[Other fans](#other-fans).
 
 ## What you get, per fan
 
@@ -108,7 +117,7 @@ pacific_fan:
 
 [examples/dashboard-room-view.yaml](examples/dashboard-room-view.yaml) is a
 ready-made Home Assistant view for one room (light, fan with quick actions,
-optionally the AC). Replace the entity prefix and paste it under `views:` in
+optionally the AC) - the one in the screenshot above. Replace the entity prefix and paste it under `views:` in
 the dashboard's raw configuration editor, once per room.
 
 ## How it works
