@@ -3,62 +3,66 @@
 Three Pacific ceiling fans (rooms: **office**, **girls**, **ofek**) on 433.92 MHz
 OOK, driven by one ESP32 + CC1101 through ESPHome.
 
-## Settled
+## Status (2026-09-21)
 
-**Protocol.** 30-bit frame: 20-bit address, 9-bit command, 1 parity bit.
-Parity is **odd** over the whole frame; `send_command()` defaults to
-`odd_parity = true`. Timings 300us short / 1150us long / 6000us gap, 20 repeats.
-Light is `0x1B1`. All applied in `esphome/cc1101_fan_controller.h`.
+**Girls' room is done and verified end to end**: TX from Home Assistant moves
+the real fan and light, and presses on the original remote update HA within a
+second without being echoed back.  `esphome_fan_controller.yaml` is the live
+firmware (OTA at 192.168.1.202, device `fan-controller`).
 
-**Verified commands.** Only Speed 1 (`0x1E8`), Speed 2 (`0x1C8`), Toggle
-(`0x191`) and Light (`0x1B1`). Speeds 3-6, Invert and everything else in the
-table came from the upstream library, which was already wrong about Light -
-treat them as unverified.
+Office and ofek are next: turn on **Learn Mode**, press buttons on their
+remotes, read address and parity from the log, then add a block per room.
 
-**There is no discrete off.** Power is a toggle, so "turn off" from Home
-Assistant means sending the toggle conditionally on tracked state. That is why
-RX state tracking matters rather than being a nicety.
+## Measured (capture of the girls' remote, every button pressed twice)
 
-**The remote has 15 buttons**, not the 9 currently in the table: power, breeze,
-speeds 1-6, F/R, 1H, 4H, light, light colour, LED-, LED+.
+- Address `0xE5D7C`.  **Parity: total ones even** for all ~45 frames.  The user
+  recalls the office fan needing the opposite, so parity is configured per fan
+  (`fan_rf.add_fan(addr, even_parity)`), not globally.
+- Timings: short mark 375us, long mark 1090us, inter-frame gap ~5.5ms, ~9
+  frames per keying.  Every press keys twice, ~200ms apart.
+- All 15 buttons are stateless (same code on every press):
 
-**Light colour is probably not a command.** The colour temperature changes when
-the light is switched off and back on quickly, so the colour button may just key
-the light command twice. The capture firmware detects and reports this. If
-confirmed, Home Assistant reproduces it by sending the light command twice - and
-the light entity then needs a minimum interval between consecutive light
-commands, so an ordinary off/on automation does not change the colour by
-accident.
+  | Button | Cmd | Button | Cmd |
+  |---|---|---|---|
+  | Power (toggle) | 0x191 | F/R (toggle) | 0x12B |
+  | Breeze | 0x10B | Timer 1H | 0x095 |
+  | Speed 1-6 | 0x1E8 0x1C8 0x1A9 0x189 0x16A 0x14A | Timer 4H | 0x152 |
+  | Light (toggle) | 0x1B1 | Light colour | 0x1D0 |
+  | LED- | 0x0F4 | LED+ | 0x133 |
 
-## Decided, not yet built
+- The colour button is a real command, not a double light press.  A fast
+  off/on of the light still changes colour, so HA should not do that.
 
-1. **Entities.** Replace the select-plus-buttons layout with a real `fan` entity
-   (on/off plus speeds) and a separate `light` entity per room.
-2. **RX state tracking.** CC1101 sits in RX by default, interrupt on GDO2.
-   Whitelist the three addresses and drop everything else. `Speed N` from a
-   physical remote sets the speed **and** marks the fan on; `Toggle` flips
-   on/off; `Light` flips the light. Detach the interrupt around TX, reattach
-   after the gap window, so the ESP32 does not receive its own transmission.
-3. **State survives reboot** - restore from flash. Without it the toggle has
-   nothing to reason about.
-4. **Raw command sender**: one code box plus a target selector (office / girls /
-   ofek) plus one send button, rather than three duplicated buttons.
-5. **Learn Mode switch**: while on, log every frame heard including unknown
-   addresses, for mapping new buttons; while off, the whitelist filters silently.
+## Design as built
 
-## Blocked on capture data
+- Physical state (`*_phys` globals, restored from flash every 5s) is kept
+  apart from the HA entities; HA changes are reconciled against it.  Power and
+  F/R are toggles, so off and direction changes are only sent when they differ.
+  A speed command both sets speed and turns the fan on.
+- RX: CC1101 always in RX, ISR on GDO2 into a ring buffer, decoded in a 20ms
+  interval.  A press counts once two identical frames agree; address whitelist
+  plus per-fan parity rejects everything else.  RX is detached during TX.
+- TX is queued and sent one burst per poll - back-to-back sends from the API
+  handler previously starved the loop and tripped the task watchdog.
+- **Sync Only (no RF)** switch: HA changes only re-align the physical state.
+  Used to calibrate when the tracked state drifts.
+- Learn Mode logs every frame, including unknown addresses.
 
-Tasks 1 and 2 cannot be written until the capture runs: the three 20-bit
-addresses are unknown, and the command table is mostly unverified. Run
-`esphome/CAPTURE_PROCEDURE.md` against `esphome_rf_capture.yaml` and keep the
-full log.
+## Open
+
+- Dimmer as a brightness slider with an estimated step (7-8 steps, count not
+  certain; resync by overshooting at 0%/100%).
+- Minimum interval (~3s) between light commands from HA, so a quick off/on does
+  not change the colour.
+- Timers turn the fan off without us hearing it; state drifts until the next
+  press or a Sync Only calibration.
+
+## Toolchain notes
+
+- ESPHome 2026.9 builds ESP32 with the ESP-IDF toolchain, which rejects the
+  CC1101 library's manifest, so the library is vendored in `esphome/cc1101_lib/`.
+- WiFi credentials live in `esphome/secrets.yaml` (gitignored).
 
 ## Untouched on purpose
 
 `server.ino` and `homeassistant.yaml` are the legacy Arduino build. Leave them.
-
-## Not compiled
-
-The protocol fixes and the capture firmware have not been through an ESPHome
-build - only YAML validation and a read of the CC1101 library source. First
-compile happens locally.

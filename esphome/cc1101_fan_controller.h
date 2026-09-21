@@ -1,35 +1,92 @@
 #pragma once
 #include "esphome.h"
-#include <CC1101_ESP_Arduino.h>
+#include "CC1101_ESP_Arduino.h"
+#include "soc/gpio_struct.h"
+#include <functional>
 
 // ============================================================
-// Fan RF Protocol Constants
-// 29-bit OOK protocol: 20-bit device address + 9-bit command
+// Pacific ceiling fans - CC1101 @ 433.92 MHz PWM-OOK
 // ============================================================
-static const uint16_t FAN_CMD_SPEED1 = 0x1E8;  // 111101000
-static const uint16_t FAN_CMD_SPEED2 = 0x1C8;  // 111001000
-static const uint16_t FAN_CMD_SPEED3 = 0x1A9;  // 110101001
-static const uint16_t FAN_CMD_SPEED4 = 0x189;  // 110001001
-static const uint16_t FAN_CMD_SPEED5 = 0x16A;  // 101101010
-static const uint16_t FAN_CMD_SPEED6 = 0x14A;  // 101001010
-static const uint16_t FAN_CMD_TOGGLE = 0x191;  // 110010001
-static const uint16_t FAN_CMD_LIGHT  = 0x1B1;  // 110110001
-static const uint16_t FAN_CMD_INVERT = 0x12B;  // 100101011
+// Frame: 30 bits = 20-bit address | 9-bit command | 1 parity bit, MSB first.
+// Each bit is one mark + one space: '1' = long mark + short space,
+// '0' = short mark + long space.  Frames are separated by a ~5.5ms gap.
+//
+// Parity is per remote, not global: the girls' remote makes the total number
+// of ones even, while the office remote was seen doing the opposite.  So each
+// fan is registered with its own rule, and RX uses that rule to reject
+// corrupted frames.
+//
+// Everything below was measured with esphome_rf_capture.yaml against the
+// girls' room remote (address 0xE5D7C), every button pressed twice.
+// ============================================================
 
-// OOK timing (microseconds), derived from captured signals
-static const int OOK_SHORT_US = 300;
-static const int OOK_LONG_US  = 1150;
-static const int OOK_GAP_US   = 6000;
-static const int OOK_TX_REPS  = 20;
-static const int OOK_MSG_BITS = 29;  // 20-bit address + 9-bit command
-// The protocol is actually 30 bits: 29 data bits + 1 parity bit.
-// The parity bit (trailing mark) is LONG=1 or SHORT=0.  Measured against
-// the original remotes, these receivers want ODD parity: the total number
-// of '1' bits across all 30 is always odd.  Hence send_command() defaults
-// to odd_parity = true.
+// ── Command table (all verified) ────────────────────────────
+static const uint16_t FAN_CMD_TOGGLE   = 0x191;  // power: toggles, no discrete off
+static const uint16_t FAN_CMD_BREEZE   = 0x10B;
+static const uint16_t FAN_CMD_SPEED1   = 0x1E8;
+static const uint16_t FAN_CMD_SPEED2   = 0x1C8;
+static const uint16_t FAN_CMD_SPEED3   = 0x1A9;
+static const uint16_t FAN_CMD_SPEED4   = 0x189;
+static const uint16_t FAN_CMD_SPEED5   = 0x16A;
+static const uint16_t FAN_CMD_SPEED6   = 0x14A;
+static const uint16_t FAN_CMD_REVERSE  = 0x12B;  // F/R: same code every press
+static const uint16_t FAN_CMD_TIMER_1H = 0x095;
+static const uint16_t FAN_CMD_TIMER_4H = 0x152;
+static const uint16_t FAN_CMD_LIGHT    = 0x1B1;  // toggles the light
+static const uint16_t FAN_CMD_COLOUR   = 0x1D0;  // a real command, not a double light
+static const uint16_t FAN_CMD_DIM_DOWN = 0x0F4;
+static const uint16_t FAN_CMD_DIM_UP   = 0x133;
+
+static const uint16_t FAN_SPEED_CMDS[6] = {
+    FAN_CMD_SPEED1, FAN_CMD_SPEED2, FAN_CMD_SPEED3,
+    FAN_CMD_SPEED4, FAN_CMD_SPEED5, FAN_CMD_SPEED6,
+};
+
+// 1..6 for a speed command, 0 for anything else.
+static inline int fan_speed_of(uint16_t cmd) {
+    for (int i = 0; i < 6; i++)
+        if (FAN_SPEED_CMDS[i] == cmd) return i + 1;
+    return 0;
+}
+
+static const char *fan_cmd_name(uint16_t cmd) {
+    switch (cmd) {
+        case FAN_CMD_TOGGLE:   return "Power";
+        case FAN_CMD_BREEZE:   return "Breeze";
+        case FAN_CMD_SPEED1:   return "Speed 1";
+        case FAN_CMD_SPEED2:   return "Speed 2";
+        case FAN_CMD_SPEED3:   return "Speed 3";
+        case FAN_CMD_SPEED4:   return "Speed 4";
+        case FAN_CMD_SPEED5:   return "Speed 5";
+        case FAN_CMD_SPEED6:   return "Speed 6";
+        case FAN_CMD_REVERSE:  return "F/R";
+        case FAN_CMD_TIMER_1H: return "Timer 1H";
+        case FAN_CMD_TIMER_4H: return "Timer 4H";
+        case FAN_CMD_LIGHT:    return "Light";
+        case FAN_CMD_COLOUR:   return "Light colour";
+        case FAN_CMD_DIM_DOWN: return "LED-";
+        case FAN_CMD_DIM_UP:   return "LED+";
+        default:               return "?";
+    }
+}
+
+// ── Measured timings (averages over ~45 captured bursts) ────
+static const int OOK_SHORT_US = 375;
+static const int OOK_LONG_US  = 1090;
+static const int OOK_GAP_US   = 5600;
+static const int OOK_TX_REPS  = 10;   // the remote sends ~9 per keying
+
+// ── RX decoder tolerances ───────────────────────────────────
+static const uint16_t RX_MARK_MIN   = 150;
+static const uint16_t RX_MARK_SPLIT = 700;    // below = '0', above = '1'
+static const uint16_t RX_MARK_MAX   = 1800;
+static const uint16_t RX_GAP_MIN    = 3500;
+// A press is keyed twice ~200ms apart, ~9 frames each.  Frames of the same
+// code closer together than this belong to one press.
+static const uint32_t RX_PRESS_GAP_MS = 500;
 
 // ============================================================
-// Hardware pin defaults — must match your wiring
+// Hardware pins - must match the wiring
 // ============================================================
 #ifndef CC1101_CS_PIN
 #define CC1101_CS_PIN    5
@@ -50,26 +107,83 @@ static const int OOK_MSG_BITS = 29;  // 20-bit address + 9-bit command
 #define CC1101_MOSI_PIN  23
 #endif
 
-// Forward declaration for ISR
-static void IRAM_ATTR rf_record_isr();
+// ── ISR ring buffer: edge durations off GDO2 ────────────────
+#define FAN_RX_RING 1024                       // must stay a power of two
 
-class CC1101FanController {
+struct FanRxRing {
+    volatile uint16_t buf[FAN_RX_RING];        // bit15 set = the pulse that ended was a mark
+    volatile uint32_t head;
+    volatile uint32_t last_us;
+};
+static FanRxRing fan_rx_ring;
+static uint8_t fan_rx_pin = CC1101_GDO2_PIN;
+
+// digitalRead() lives in flash and is not safe from an IRAM ISR.
+static inline bool IRAM_ATTR fan_rx_read(uint8_t pin) {
+    if (pin < 32) return (GPIO.in >> pin) & 0x1;
+    return (GPIO.in1.val >> (pin - 32)) & 0x1;
+}
+
+static void IRAM_ATTR fan_rx_isr() {
+    uint32_t now = micros();
+    uint32_t dt = now - fan_rx_ring.last_us;
+    fan_rx_ring.last_us = now;
+    if (dt > 0x7FFF) dt = 0x7FFF;
+    uint16_t v = (uint16_t) dt;
+    if (!fan_rx_read(fan_rx_pin)) v |= 0x8000;   // now LOW -> it was a HIGH mark
+    fan_rx_ring.buf[fan_rx_ring.head & (FAN_RX_RING - 1)] = v;
+    fan_rx_ring.head++;
+}
+
+// ============================================================
+// FanRadio: sits in RX, decodes remote presses, transmits on demand
+// ============================================================
+class FanRadio {
+    struct Fan { uint32_t addr; bool even_parity; };
+    static const int MAX_FANS = 4;
+
     CC1101 radio_;
-    int gdo0_;
-    int gdo2_;
+    int gdo0_, gdo2_;
     bool ready_ = false;
-    portMUX_TYPE rf_mux_ = portMUX_INITIALIZER_UNLOCKED;
+    portMUX_TYPE tx_mux_ = portMUX_INITIALIZER_UNLOCKED;
+
+    Fan fans_[MAX_FANS];
+    int nfans_ = 0;
+
+    // Transmissions are queued and sent one per poll(): a burst takes ~0.5s,
+    // and running several back to back from an API call starves the loop
+    // until the task watchdog reboots the chip.
+    struct TxItem { uint32_t addr; uint16_t cmd; };
+    static const int TXQ = 16;
+    TxItem txq_[TXQ];
+    uint8_t txq_head_ = 0, txq_tail_ = 0;
+
+    // decoder
+    uint32_t tail_ = 0;
+    enum { WAIT_GAP, EXPECT_MARK, EXPECT_SPACE } state_ = WAIT_GAP;
+    uint16_t mark_ = 0;
+    uint32_t frame_ = 0;
+    int bits_ = 0;
+
+    // press detection: a code must be seen twice in a row before it counts,
+    // then further copies are swallowed until the press goes quiet.
+    uint32_t cand_ = 0;
+    int cand_n_ = 0;
+    uint32_t cand_last_ms_ = 0;
 
 public:
-    static constexpr int MAX_CHANGES = 512;
-    static volatile int rec_timings_[MAX_CHANGES];
-    static volatile int rec_count_;
-    static volatile long rec_last_us_;
-    static volatile bool rec_signal_detected_;
-    static volatile bool rec_active_;
+    bool learn_mode = false;
+    // Called once per physical press from a whitelisted remote.
+    std::function<void(uint32_t addr, uint16_t cmd)> on_command;
 
-    CC1101FanController(int sck, int miso, int mosi, int cs, int gdo0, int gdo2)
+    FanRadio(int sck, int miso, int mosi, int cs, int gdo0, int gdo2)
         : radio_(sck, miso, mosi, cs, gdo0, gdo2), gdo0_(gdo0), gdo2_(gdo2) {}
+
+    bool ready() const { return ready_; }
+
+    void add_fan(uint32_t addr, bool even_parity) {
+        if (nfans_ < MAX_FANS) fans_[nfans_++] = {addr & 0xFFFFF, even_parity};
+    }
 
     bool begin() {
         radio_.init();
@@ -79,202 +193,161 @@ public:
         radio_.setRxBW(RX_BW_162_KHZ);
         radio_.setModulation(ASK_OOK);
 
-        uint8_t partnum = radio_.getPartnum();
         uint8_t version = radio_.getVersion();
-
         if (version == 0x00 || version == 0xFF) {
-            ESP_LOGE("cc1101", "CC1101 not detected (ver=0x%02X). Check wiring.", version);
+            ESP_LOGE("fan_rf", "CC1101 not detected (ver=0x%02X). Check wiring.", version);
             return false;
         }
 
-        // The library only calls pinMode(GDO0, OUTPUT) when it was built
-        // without a GDO2 pin.  We do pass GDO2, so set it ourselves or the
-        // bit-banged TX silently drives nothing.
+        // The library only drives GDO0 as an output when built without GDO2.
         pinMode(gdo0_, OUTPUT);
         digitalWrite(gdo0_, LOW);
+        fan_rx_pin = gdo2_;
+        pinMode(gdo2_, INPUT);
 
         ready_ = true;
-        ESP_LOGI("cc1101", "CC1101 OK  part=0x%02X  ver=0x%02X  433.92 MHz ASK/OOK", partnum, version);
+        start_rx_();
+        ESP_LOGI("fan_rf", "CC1101 ready (ver=0x%02X), listening on GDO2", version);
         return true;
     }
 
-    void send_command(uint32_t address, uint16_t command, bool odd_parity = true) {
+    void send(uint32_t address, uint16_t command) {
         if (!ready_) {
-            ESP_LOGW("cc1101", "Not initialised — skipping TX");
+            ESP_LOGW("fan_rf", "Not initialised - skipping TX");
             return;
         }
+        if ((uint8_t)(txq_head_ - txq_tail_) >= TXQ) {
+            ESP_LOGW("fan_rf", "TX queue full - dropping cmd=0x%03X", command);
+            return;
+        }
+        txq_[txq_head_++ % TXQ] = {address, command};
+    }
+
+private:
+    void transmit_(uint32_t address, uint16_t command) {
+        const Fan *fan = find_(address);
+        bool even = fan ? fan->even_parity : true;
 
         uint32_t msg = ((address & 0xFFFFF) << 9) | (command & 0x1FF);
+        bool odd_ones = __builtin_popcount(msg) & 1;
+        bool parity = even ? odd_ones : !odd_ones;
+        uint32_t frame = (msg << 1) | (parity ? 1 : 0);
 
-        int ones = __builtin_popcount(msg);
-        bool parity = odd_parity ? !(ones & 1) : (ones & 1);
-
+        // Stop listening so we do not decode our own transmission.
+        detachInterrupt(digitalPinToInterrupt(gdo2_));
         radio_.setTx();
-        pinMode(gdo0_, OUTPUT);
-        delayMicroseconds(500);
-
-        // Preamble: alternating pulses to wake the receiver's AGC
-        for (int i = 0; i < 12; i++) {
-            digitalWrite(gdo0_, HIGH);
-            delayMicroseconds(OOK_LONG_US);
-            digitalWrite(gdo0_, LOW);
-            delayMicroseconds(OOK_SHORT_US);
-        }
+        digitalWrite(gdo0_, LOW);
         delayMicroseconds(OOK_GAP_US);
 
         for (int rep = 0; rep < OOK_TX_REPS; rep++) {
-            portENTER_CRITICAL(&rf_mux_);
-
-            for (int b = OOK_MSG_BITS - 1; b >= 0; b--) {
-                bool one = msg & (1UL << b);
+            portENTER_CRITICAL(&tx_mux_);
+            for (int b = 29; b >= 0; b--) {
+                bool one = (frame >> b) & 1;
                 digitalWrite(gdo0_, HIGH);
                 delayMicroseconds(one ? OOK_LONG_US : OOK_SHORT_US);
                 digitalWrite(gdo0_, LOW);
                 delayMicroseconds(one ? OOK_SHORT_US : OOK_LONG_US);
             }
-            // 30th bit: even-parity trailing mark
-            digitalWrite(gdo0_, HIGH);
-            delayMicroseconds(parity ? OOK_LONG_US : OOK_SHORT_US);
-            digitalWrite(gdo0_, LOW);
-
-            portEXIT_CRITICAL(&rf_mux_);
-
+            portEXIT_CRITICAL(&tx_mux_);
             delayMicroseconds(OOK_GAP_US);
+            App.feed_wdt();
         }
 
         digitalWrite(gdo0_, LOW);
-        radio_.setIdle();
-        ESP_LOGD("cc1101", "TX  addr=0x%05X  cmd=0x%03X", address, command);
+        start_rx_();
+        ESP_LOGI("fan_rf", "TX  addr=0x%05X  cmd=0x%03X (%s)", address, command, fan_cmd_name(command));
     }
 
-    void record_signal() {
-        if (!ready_) {
-            ESP_LOGW("cc1101", "Not initialised — skipping RX record");
-            return;
+public:
+    // Drain the ISR ring; call from a short interval.
+    void poll() {
+        if (!ready_) return;
+        uint32_t h = fan_rx_ring.head;
+        if (h - tail_ > FAN_RX_RING) {           // overrun: resync on the next gap
+            tail_ = h - FAN_RX_RING;
+            state_ = WAIT_GAP;
         }
-
-        ESP_LOGI("cc1101", "=== RECORDING: Put CC1101 in RX, waiting for signal (10s timeout) ===");
-
-        rec_signal_detected_ = false;
-        rec_count_ = 0;
-        rec_last_us_ = micros();
-        rec_active_ = true;
-
-        radio_.setRx();
-        pinMode(gdo2_, INPUT);
-        attachInterrupt(digitalPinToInterrupt(gdo2_), rf_record_isr, CHANGE);
-
-        unsigned long start = millis();
-        while (!rec_signal_detected_ && (millis() - start < 10000)) {
-            delay(1);
+        while (tail_ != h) {
+            uint16_t v = fan_rx_ring.buf[tail_ & (FAN_RX_RING - 1)];
+            tail_++;
+            feed_(v & 0x7FFF, (v & 0x8000) != 0);
         }
-
-        if (rec_signal_detected_) {
-            delay(300);
+        if (txq_tail_ != txq_head_) {
+            TxItem it = txq_[txq_tail_++ % TXQ];
+            transmit_(it.addr, it.cmd);
         }
-
-        rec_active_ = false;
-        detachInterrupt(digitalPinToInterrupt(gdo2_));
-        radio_.setIdle();
-
-        int count = rec_count_;
-
-        if (count < 20) {
-            ESP_LOGW("cc1101", "Too few transitions (%d). No signal captured.", count);
-            return;
-        }
-
-        ESP_LOGI("cc1101", "Captured %d transitions. Raw timings:", count);
-
-        // Log timings in chunks so they fit in log buffers
-        String timings_str = "[";
-        for (int i = 0; i < count; i++) {
-            if (i > 0) timings_str += ", ";
-            timings_str += String(rec_timings_[i]);
-            if (timings_str.length() > 400 || i == count - 1) {
-                if (i < count - 1) timings_str += ",";
-                ESP_LOGI("cc1101", "  %s", timings_str.c_str());
-                timings_str = "";
-            }
-        }
-        ESP_LOGI("cc1101", "]");
-
-        decode_signal(count);
     }
 
 private:
-    void decode_signal(int count) {
-        // Try to find repeated 30-bit frames in the captured data.
-        // A SHORT pulse (~370us) = 0, a LONG pulse (~1100us) = 1.
-        // Each bit is a mark+space pair; the mark duration encodes the bit.
-        // Look for a gap (>3000us) as frame separator.
+    const Fan *find_(uint32_t addr) const {
+        for (int i = 0; i < nfans_; i++)
+            if (fans_[i].addr == (addr & 0xFFFFF)) return &fans_[i];
+        return nullptr;
+    }
 
-        for (int start = 0; start < count - 60; start++) {
-            if (rec_timings_[start] < 3000) continue;
+    void start_rx_() {
+        radio_.setRx();
+        fan_rx_ring.last_us = micros();
+        tail_ = fan_rx_ring.head;
+        state_ = WAIT_GAP;
+        attachInterrupt(digitalPinToInterrupt(gdo2_), fan_rx_isr, CHANGE);
+    }
 
-            // Found a gap — try to decode 30 bits starting after it
-            uint32_t frame = 0;
-            int bits_decoded = 0;
-            int pos = start + 1;
-
-            while (bits_decoded < 30 && pos + 1 < count) {
-                int mark = rec_timings_[pos];
-                if (mark < 100 || mark > 2000) break;
-
-                bool is_one = (mark > 700);
-                frame = (frame << 1) | (is_one ? 1 : 0);
-                bits_decoded++;
-                pos += 2; // skip mark + space
-            }
-
-            if (bits_decoded >= 29) {
-                uint32_t full30 = frame;
-                uint32_t msg29 = full30 >> 1;
-                uint32_t address = (msg29 >> 9) & 0xFFFFF;
-                uint16_t command = msg29 & 0x1FF;
-                bool parity_bit = full30 & 1;
-
-                ESP_LOGI("cc1101", "=== DECODED FRAME ===");
-                ESP_LOGI("cc1101", "  30-bit frame : 0x%08X", full30);
-                ESP_LOGI("cc1101", "  29-bit msg   : 0x%08X", msg29);
-                ESP_LOGI("cc1101", "  Address (20b): 0x%05X", address);
-                ESP_LOGI("cc1101", "  Command (9b) : 0x%03X", command);
-                ESP_LOGI("cc1101", "  Parity bit   : %d", parity_bit);
-
-                // Print command in binary for easy comparison
-                char cmd_bin[10];
-                for (int b = 8; b >= 0; b--) {
-                    cmd_bin[8 - b] = (command & (1 << b)) ? '1' : '0';
-                }
-                cmd_bin[9] = '\0';
-                ESP_LOGI("cc1101", "  Command (bin): %s", cmd_bin);
+    void feed_(uint16_t dur, bool high) {
+        switch (state_) {
+            case WAIT_GAP:
+                if (!high && dur >= RX_GAP_MIN) { bits_ = 0; frame_ = 0; state_ = EXPECT_MARK; }
                 return;
-            }
+            case EXPECT_MARK:
+                if (!high || dur < RX_MARK_MIN || dur > RX_MARK_MAX) { state_ = WAIT_GAP; return; }
+                mark_ = dur;
+                state_ = EXPECT_SPACE;
+                return;
+            case EXPECT_SPACE:
+                if (high) { state_ = WAIT_GAP; return; }
+                frame_ = (frame_ << 1) | (mark_ > RX_MARK_SPLIT ? 1 : 0);
+                bits_++;
+                if (dur >= RX_GAP_MIN) {
+                    if (bits_ == 30) on_frame_(frame_);
+                    bits_ = 0; frame_ = 0;            // the next repeat starts right here
+                } else if (bits_ > 30) {
+                    state_ = WAIT_GAP;
+                    return;
+                }
+                state_ = EXPECT_MARK;
+                return;
         }
+    }
 
-        ESP_LOGW("cc1101", "Could not decode a valid frame from the captured data.");
+    void on_frame_(uint32_t f) {
+        uint32_t addr = (f >> 10) & 0xFFFFF;
+        uint16_t cmd = (f >> 1) & 0x1FF;
+        bool total_even = !(__builtin_popcount(f) & 1);
+        const Fan *fan = find_(addr);
+        bool valid = fan && (total_even == fan->even_parity);
+
+        uint32_t now = millis();
+        if (f == cand_ && now - cand_last_ms_ < RX_PRESS_GAP_MS) {
+            cand_n_++;
+        } else {
+            cand_ = f;
+            cand_n_ = 1;
+        }
+        cand_last_ms_ = now;
+        if (cand_n_ != 2) return;                 // not confirmed yet, or already reported
+
+        if (learn_mode)
+            ESP_LOGI("fan_rf", "LEARN addr=0x%05X cmd=0x%03X (%s) parity=%s%s", addr, cmd,
+                     fan_cmd_name(cmd), total_even ? "even" : "odd",
+                     fan ? (valid ? "" : "  [known address, WRONG parity]") : "  [unknown address]");
+        if (!valid) return;
+
+        ESP_LOGI("fan_rf", "RX  addr=0x%05X  cmd=0x%03X (%s)", addr, cmd, fan_cmd_name(cmd));
+        if (on_command) on_command(addr, cmd);
     }
 };
 
-// Static member definitions
-volatile int CC1101FanController::rec_timings_[CC1101FanController::MAX_CHANGES];
-volatile int CC1101FanController::rec_count_ = 0;
-volatile long CC1101FanController::rec_last_us_ = 0;
-volatile bool CC1101FanController::rec_signal_detected_ = false;
-volatile bool CC1101FanController::rec_active_ = false;
-
-static void IRAM_ATTR rf_record_isr() {
-    if (!CC1101FanController::rec_active_ ||
-        CC1101FanController::rec_count_ >= CC1101FanController::MAX_CHANGES)
-        return;
-    long now = micros();
-    CC1101FanController::rec_timings_[CC1101FanController::rec_count_++] =
-        (int)(now - CC1101FanController::rec_last_us_);
-    CC1101FanController::rec_last_us_ = now;
-    CC1101FanController::rec_signal_detected_ = true;
-}
-
-static CC1101FanController fan_ctrl(
+static FanRadio fan_rf(
     CC1101_SCK_PIN,
     CC1101_MISO_PIN,
     CC1101_MOSI_PIN,

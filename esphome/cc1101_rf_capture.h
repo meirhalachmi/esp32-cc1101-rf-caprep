@@ -1,6 +1,7 @@
 #pragma once
 #include "esphome.h"
-#include <CC1101_ESP_Arduino.h>
+#include "CC1101_ESP_Arduino.h"
+#include "soc/gpio_struct.h"
 
 // ============================================================
 // CC1101 RF capture / protocol-mapping firmware
