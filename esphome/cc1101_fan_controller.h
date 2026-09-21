@@ -13,18 +13,20 @@ static const uint16_t FAN_CMD_SPEED4 = 0x189;  // 110001001
 static const uint16_t FAN_CMD_SPEED5 = 0x16A;  // 101101010
 static const uint16_t FAN_CMD_SPEED6 = 0x14A;  // 101001010
 static const uint16_t FAN_CMD_TOGGLE = 0x191;  // 110010001
-static const uint16_t FAN_CMD_LIGHT  = 0x0B5;  // 010110101
+static const uint16_t FAN_CMD_LIGHT  = 0x1B1;  // 110110001
 static const uint16_t FAN_CMD_INVERT = 0x12B;  // 100101011
 
 // OOK timing (microseconds), derived from captured signals
-static const int OOK_SHORT_US = 370;
-static const int OOK_LONG_US  = 1100;
+static const int OOK_SHORT_US = 300;
+static const int OOK_LONG_US  = 1150;
 static const int OOK_GAP_US   = 6000;
-static const int OOK_TX_REPS  = 12;
+static const int OOK_TX_REPS  = 20;
 static const int OOK_MSG_BITS = 29;  // 20-bit address + 9-bit command
-// The protocol is actually 30 bits: 29 data bits + 1 even-parity bit.
-// The parity bit (trailing mark) is LONG=1 or SHORT=0 so the total
-// number of '1' bits across all 30 is always even.
+// The protocol is actually 30 bits: 29 data bits + 1 parity bit.
+// The parity bit (trailing mark) is LONG=1 or SHORT=0.  Measured against
+// the original remotes, these receivers want ODD parity: the total number
+// of '1' bits across all 30 is always odd.  Hence send_command() defaults
+// to odd_parity = true.
 
 // ============================================================
 // Hardware pin defaults — must match your wiring
@@ -85,12 +87,18 @@ public:
             return false;
         }
 
+        // The library only calls pinMode(GDO0, OUTPUT) when it was built
+        // without a GDO2 pin.  We do pass GDO2, so set it ourselves or the
+        // bit-banged TX silently drives nothing.
+        pinMode(gdo0_, OUTPUT);
+        digitalWrite(gdo0_, LOW);
+
         ready_ = true;
         ESP_LOGI("cc1101", "CC1101 OK  part=0x%02X  ver=0x%02X  433.92 MHz ASK/OOK", partnum, version);
         return true;
     }
 
-    void send_command(uint32_t address, uint16_t command, bool odd_parity = false) {
+    void send_command(uint32_t address, uint16_t command, bool odd_parity = true) {
         if (!ready_) {
             ESP_LOGW("cc1101", "Not initialised — skipping TX");
             return;
@@ -102,6 +110,7 @@ public:
         bool parity = odd_parity ? !(ones & 1) : (ones & 1);
 
         radio_.setTx();
+        pinMode(gdo0_, OUTPUT);
         delayMicroseconds(500);
 
         // Preamble: alternating pulses to wake the receiver's AGC

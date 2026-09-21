@@ -71,6 +71,14 @@ ESP32 Pin  ->  CC1101 Pin
    ```
 4. The device will appear automatically in Home Assistant if you have the ESPHome integration.
 
+### Mapping the Protocol (`esphome_rf_capture.yaml`)
+
+A second, receive-only ESPHome build is included for protocol work. It parks the
+CC1101 in RX, decodes every OOK frame it hears, and logs the address, command,
+parity evidence and measured pulse timings for each one. Use it to learn a new
+fan's address or to map a remote button that is not in the table above. See
+[CAPTURE_PROCEDURE.md](esphome/CAPTURE_PROCEDURE.md).
+
 ### Adding a New Fan
 
 1. Use the "Record RF Signal" button (web UI or HA) to capture a signal from the fan's remote.
@@ -99,10 +107,17 @@ Each message is a 30-bit OOK frame: 20-bit device address + 9-bit command + 1 ev
 | Speed 5   | `0x16A`   | `101101010` |
 | Speed 6   | `0x14A`   | `101001010` |
 | Toggle    | `0x191`   | `110010001` |
-| Light     | `0x0B5`   | `010110101` |
+| Light     | `0x1B1`   | `110110001` |
 | Invert    | `0x12B`   | `100101011` |
 
-OOK timing: ~370 us (short/0), ~1100 us (long/1), ~6000 us inter-frame gap, 12 preamble pulses, 12 repetitions per transmission.
+OOK timing: ~300 us (short/0), ~1150 us (long/1), ~6000 us inter-frame gap, 12 preamble pulses, 20 repetitions per transmission.
+
+The 30th bit is an **odd**-parity bit: the total number of `1` bits across the
+whole 30-bit frame is odd.  `send_command()` defaults to `odd_parity = true`.
+
+Speeds 3-6, Invert and the remaining remote buttons (Breeze, timers, LED
+dimming, light colour) are **not yet verified** against these receivers - see
+[esphome/CAPTURE_PROCEDURE.md](esphome/CAPTURE_PROCEDURE.md).
 
 ## Legacy Arduino Setup
 
