@@ -71,6 +71,9 @@ more package entry.
 ## Open
 
 - Dimmer step count is still a guess (8).
+- Unknown what cancels the fan's own timer. The countdown is cleared only
+  when the fan goes off; if a speed press also cancels it on the fan, clear
+  `<room>_timer_end_ms` on speed commands too (fan_room.yaml).
 
 ## Toolchain notes
 
