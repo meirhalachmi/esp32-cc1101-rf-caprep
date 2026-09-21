@@ -33,9 +33,9 @@ family.
 
 | Entity | What it does |
 |---|---|
-| `fan` | On/off, 6 speeds, direction |
+| `fan` | On/off, 6 speeds, direction, and a **Breeze** preset |
 | `light` | On/off and a brightness slider mapped onto the dimmer steps |
-| `button` × 4 | Breeze, Timer 1H, Timer 4H, Light colour |
+| `button` × 3 | Timer 1H, Timer 4H, Light colour |
 | `sensor` | Minutes left on the fan's own timer |
 
 Plus, for the whole controller: **Learn Mode** and **Last Heard** (find a
@@ -121,7 +121,7 @@ pacific_fan:
       # Every entity can be customised, e.g.:
       # fan:   { name: Bedroom Ceiling Fan, icon: mdi:ceiling-fan }
       # light: { name: Bedroom Ceiling Light }
-      # breeze / timer_1h / timer_4h / colour / timer_remaining: { ... }
+      # timer_1h / timer_4h / colour / timer_remaining: { ... }
 ```
 
 ## Dashboard
@@ -162,6 +162,10 @@ is dropped. Presses on the original remotes update the entities, and the
 controller stops listening while it transmits so it never hears itself.
 
 **Details worth knowing:**
+- Breeze is a mode of its own on these fans: it replaces the speed, and
+  pressing a speed leaves it. So it is a preset of the fan entity - choosing
+  it enters Breeze, choosing a speed leaves it, and turning the fan back on
+  returns to whichever of the two it was in.
 - A quick off/on of the light changes its colour on these fans, so light
   toggles from Home Assistant are kept at least 3 s apart.
 - The dimmer has no absolute command. Brightness maps to an estimated step;

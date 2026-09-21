@@ -127,7 +127,8 @@ class PacificRemote : public Component {
   // A press heard from this remote.
   void on_rx(uint16_t cmd);
   // Home Assistant asked for this fan / light state.
-  void fan_control(bool on, int speed, bool reverse);
+  void fan_control(bool on, int speed, bool breeze, bool reverse);
+  bool in_breeze() const { return phys_.speed == 0; }
   void light_control(bool on, float brightness);
   // A button entity: send the command and track what it implies.
   void press(uint16_t cmd);
@@ -135,7 +136,7 @@ class PacificRemote : public Component {
  protected:
   struct Phys {
     bool fan_on;
-    uint8_t speed;
+    uint8_t speed;  // 1..6, or 0 = Breeze (a mode that replaces the speed)
     bool reverse;
     bool light_on;
     uint8_t level;
@@ -159,17 +160,33 @@ class PacificRemote : public Component {
   Phys phys_{false, 1, false, false, 8};
   ESPPreferenceObject pref_;
   bool ready_{false};
+  bool restored_{false};
 
   bool want_light_on_{false};
   float want_brightness_{1.0f};
   uint32_t light_tx_ms_{0};
   uint32_t timer_end_ms_{0};  // 0 = no timer running
+  uint8_t last_speed_{1};     // shown while in Breeze, and restored on leaving it
 };
+
+// Breeze is a mode of its own on these fans: it replaces the current speed,
+// and pressing a speed leaves it.  That is exactly a Home Assistant preset.
+static const char *const PRESET_BREEZE = "Breeze";
 
 class PacificFan : public Component, public fan::Fan {
  public:
-  explicit PacificFan(PacificRemote *remote) : remote_(remote) {}
-  fan::FanTraits get_traits() override { return fan::FanTraits(false, true, true, 6); }
+  explicit PacificFan(PacificRemote *remote) : remote_(remote) { this->set_supported_preset_modes({PRESET_BREEZE}); }
+  fan::FanTraits get_traits() override {
+    fan::FanTraits traits(false, true, true, 6);
+    this->wire_preset_modes_(traits);
+    return traits;
+  }
+  void set_breeze(bool breeze) {
+    if (breeze)
+      this->set_preset_mode_(PRESET_BREEZE);
+    else
+      this->clear_preset_mode_();
+  }
 
  protected:
   void control(const fan::FanCall &call) override;
