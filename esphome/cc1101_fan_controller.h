@@ -76,6 +76,15 @@ static const int OOK_LONG_US  = 1090;
 static const int OOK_GAP_US   = 5600;
 static const int OOK_TX_REPS  = 10;   // the remote sends ~9 per keying
 
+// ── Light ───────────────────────────────────────────────────
+// The dimmer has about 7-8 steps (hard to tell by eye); 8 keeps the ends
+// reachable, and DIM_OVERSHOOT extra presses at either end absorb the doubt.
+static const int DIM_STEPS = 8;
+static const int DIM_OVERSHOOT = 2;
+// Toggling the light off and on quickly changes its colour; keep HA-driven
+// toggles at least this far apart.
+static const uint32_t LIGHT_MIN_GAP_MS = 3000;
+
 // ── RX decoder tolerances ───────────────────────────────────
 static const uint16_t RX_MARK_MIN   = 150;
 static const uint16_t RX_MARK_SPLIT = 700;    // below = '0', above = '1'

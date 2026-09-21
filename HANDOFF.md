@@ -54,14 +54,23 @@ more package entry.
   Used to calibrate when the tracked state drifts.
 - Learn Mode logs every frame, including unknown addresses.
 
+## Built since
+
+- **Dimmer slider**: the light is a monochromatic light; brightness maps to an
+  estimated dimmer step (8 assumed, 7-8 observed). 100%/min overshoot by 2
+  presses so the estimate re-anchors; remote LED+/- presses move the estimate.
+- **Colour guard**: HA light toggles are kept >= 3s apart (restart-mode
+  script), so a quick off/on from HA cannot change the colour.
+- **Fan timers**: 1H/4H from HA or the remote start a countdown; the fan is
+  marked off when it ends (not restored across a controller reboot).
+  `<Room> Fan Timer` reports minutes left.
+- **Security**: API encryption key and OTA password in `secrets.yaml`.
+- HA: entities assigned to areas; "Comfort" dashboard (`/room-comfort`) with
+  AC, fan, light and quick actions per room.
+
 ## Open
 
-- Dimmer as a brightness slider with an estimated step (7-8 steps, count not
-  certain; resync by overshooting at 0%/100%).
-- Minimum interval (~3s) between light commands from HA, so a quick off/on does
-  not change the colour.
-- Timers turn the fan off without us hearing it; state drifts until the next
-  press or a Sync Only calibration.
+- Dimmer step count is still a guess (8).
 
 ## Toolchain notes
 
