@@ -64,7 +64,7 @@ For each step:
 | 10 | Timer 1H | |
 | 11 | Timer 4H | |
 | 12 | Light (bulb) | |
-| 13 | Light colour (three dots) | cycles through colour temperatures; press this one **four** times |
+| 13 | Light colour (three dots) | see below; press this one **four** times |
 | 14 | LED- | tap briefly; holding it may repeat |
 | 15 | LED+ | tap briefly; holding it may repeat |
 
@@ -72,6 +72,26 @@ The two presses per button are the point of the exercise: if both bursts carry
 the same 9-bit command, the button is stateless and safe to expose in Home
 Assistant. If the code alternates, the button cycles through states and needs
 different handling.
+
+### Step 13 in particular
+
+On these fans the colour temperature changes when the light is switched off and
+straight back on again. So the colour button may well have no command of its
+own - it may simply key the ordinary light command twice in quick succession,
+and let the receiver interpret the fast off/on.
+
+The capture reports this directly. Repeats within one transmission arrive about
+50ms apart; anything slower than 150ms is a separate keying, and the log says
+so:
+
+```
+  ** this single press keyed the SAME code 2 times, 210ms apart **
+```
+
+If that line appears with `cmd` equal to the light command, the colour button is
+a double-tap of the light and Home Assistant can reproduce it by sending the
+light command twice - no new command needed. If instead step 13 yields a command
+that appears nowhere else, it is a real colour command and gets its own control.
 
 If a press produces no burst in the log, press **Previous Button (redo)** and
 repeat that step.

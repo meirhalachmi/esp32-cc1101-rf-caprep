@@ -51,6 +51,10 @@ static const uint16_t RFC_GAP_MIN    = 2200;  // a LOW this long separates frame
 static const int      RFC_MIN_BITS   = 24;    // reject anything shorter
 static const int      RFC_MAX_BITS   = 40;
 static const uint32_t RFC_BURST_MS   = 400;   // silence that ends a burst
+// Repeats inside one transmission come ~50ms apart (frame + gap).  A longer
+// pause before an identical frame means the remote keyed up a second time -
+// which is how a button that "double-taps" an existing command shows itself.
+static const uint32_t RFC_TX_SPLIT_MS = 150;
 
 // ── ISR ring buffer ─────────────────────────────────────────
 #define RFC_RING 2048                          // must stay a power of two
@@ -178,6 +182,10 @@ class RfCapture {
     int burst_reps_ = 0;
     uint32_t burst_last_ms_ = 0;
     int burst_step_ = 0;
+    int burst_txs_ = 0;                 // separate keyings of the same code
+    uint16_t burst_tx_gaps_[8];         // ms between those keyings
+    int burst_tx_gap_n_ = 0;
+    uint32_t prev_burst_end_ms_ = 0;
     RfcStats burst_;
     uint16_t burst_raw_[RAW_MAX];
     int burst_raw_n_ = 0;
@@ -336,6 +344,12 @@ private:
 
         if (burst_open_ && f == burst_frame_ && bits == burst_bits_ &&
             (now - burst_last_ms_) <= RFC_BURST_MS) {
+            uint32_t dt = now - burst_last_ms_;
+            if (dt > RFC_TX_SPLIT_MS) {
+                // Same code, but too late to be a repeat: a second keying.
+                burst_txs_++;
+                if (burst_tx_gap_n_ < 8) burst_tx_gaps_[burst_tx_gap_n_++] = (uint16_t) dt;
+            }
             burst_.merge(cur_);
             burst_reps_++;
             burst_last_ms_ = now;
@@ -352,6 +366,8 @@ private:
         burst_reps_ = 1;
         burst_last_ms_ = now;
         burst_step_ = step_;
+        burst_txs_ = 1;
+        burst_tx_gap_n_ = 0;
         burst_ = cur_;
         burst_raw_n_ = cur_raw_n_;
         memcpy(burst_raw_, cur_raw_, sizeof(uint16_t) * cur_raw_n_);
@@ -379,7 +395,23 @@ private:
                  burst_step_,
                  (burst_step_ >= 1 && burst_step_ <= RFC_NSTEPS) ? RFC_STEPS[burst_step_ - 1]
                                                                  : "(no step set)");
-        ESP_LOGI("rfcap", "  bits=%d  reps=%d  rssi=%ddBm", bits, burst_reps_, radio_.getRSSI());
+        if (prev_burst_end_ms_)
+            ESP_LOGI("rfcap", "  bits=%d  reps=%d  rssi=%ddBm  (+%ums since previous burst)",
+                     bits, burst_reps_, radio_.getRSSI(), burst_last_ms_ - prev_burst_end_ms_);
+        else
+            ESP_LOGI("rfcap", "  bits=%d  reps=%d  rssi=%ddBm", bits, burst_reps_, radio_.getRSSI());
+        prev_burst_end_ms_ = burst_last_ms_;
+
+        if (burst_txs_ > 1) {
+            std::string g;
+            for (int i = 0; i < burst_tx_gap_n_; i++) {
+                char b[16];
+                snprintf(b, sizeof(b), "%ums ", burst_tx_gaps_[i]);
+                g += b;
+            }
+            ESP_LOGI("rfcap", "  ** this single press keyed the SAME code %d times, %s apart **",
+                     burst_txs_, g.c_str());
+        }
         ESP_LOGI("rfcap", "  raw   = %s", bs);
         ESP_LOGI("rfcap", "  hex   = 0x%08X%08X", (uint32_t)(f >> 32), (uint32_t)(f & 0xFFFFFFFF));
 
