@@ -42,8 +42,8 @@ pacific_fan:
   # gdo0_pin: 25
   # gdo2_pin: 26
   fans:
-    # Start with none, turn on Learn Mode, press a button on each remote and
-    # copy the address and parity from the log.
+    # Don't know the address yet? Use `fans: []`, flash, turn on Learn Mode,
+    # press a button on the remote and copy what the "Last Heard" sensor shows.
     - name: Bedroom
       address: 0xE5D7C
       parity: even

@@ -10,6 +10,7 @@
 #include "esphome/components/light/light_state.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 
 #include "cc1101_esp_arduino.h"
 
@@ -52,6 +53,7 @@ class PacificFanRadio : public Component {
     sck_ = sck; miso_ = miso; mosi_ = mosi; cs_ = cs; gdo0_ = gdo0; gdo2_ = gdo2;
   }
   void add_remote(PacificRemote *remote) { remotes_.push_back(remote); }
+  void set_last_heard(text_sensor::TextSensor *sensor) { last_heard_ = sensor; }
 
   void setup() override;
   void loop() override;
@@ -76,6 +78,7 @@ class PacificFanRadio : public Component {
   CC1101 *radio_{nullptr};
   bool ready_{false};
   std::vector<PacificRemote *> remotes_;
+  text_sensor::TextSensor *last_heard_{nullptr};
 
   struct TxItem { uint32_t address; uint16_t command; };
   static const uint8_t TXQ = 32;

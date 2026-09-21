@@ -18,9 +18,9 @@ controller listens to them and keeps Home Assistant in sync.
 | `button` × 4 | Breeze, Timer 1H, Timer 4H, Light colour |
 | `sensor` | Minutes left on the fan's own timer |
 
-Plus two switches for the whole controller: **Learn Mode** (log every frame
-heard, to find a remote's address) and **Sync Only** (re-align the tracked
-state without transmitting).
+Plus, for the whole controller: **Learn Mode** and **Last Heard** (find a
+remote's address), and **Sync Only** (re-align the tracked state without
+transmitting).
 
 ## Hardware
 
@@ -44,14 +44,18 @@ Any pins can be used; set them in the config (below).
 
 1. Copy [examples/fan-controller.yaml](examples/fan-controller.yaml) and create
    a `secrets.yaml` next to it with `wifi_ssid`, `wifi_password`, `api_key`
-   (generate one with `openssl rand -base64 32`) and `ota_password`.
+   (generate one with `openssl rand -base64 32`) and `ota_password`. Leave
+   `fans:` empty (`fans: []`) if you don't know your addresses yet.
 2. Flash it: `esphome run fan-controller.yaml`, and add the device in Home
    Assistant (Settings → Devices & Services → ESPHome).
-3. **Find each remote's address**: turn on **Learn Mode**, press any button on
-   the remote, and read the log:
+3. **Find each remote's address**: on the device's page in Home Assistant,
+   turn on **Learn Mode** and press any button on the remote. The **Last
+   Heard** sensor shows exactly what to put in the config:
    ```
-   LEARN address=0xE5D7C parity=even command=0x191 (Power)  [unknown address]
+   address: 0xE5D7C, parity: even  (Power)
    ```
+   Repeat for each remote. (The same thing is in the device log as a `LEARN`
+   line.) Turn Learn Mode off when done.
 4. Add one entry per fan and flash again:
    ```yaml
    pacific_fan:
@@ -87,6 +91,8 @@ pacific_fan:
     name: Learn Mode
   sync_only:
     name: Sync Only (no RF)
+  last_heard:
+    name: Last Heard
   fans:
     - name: Bedroom      # prefix for every entity of this fan
       address: 0xE5D7C   # 20-bit remote address, from Learn Mode

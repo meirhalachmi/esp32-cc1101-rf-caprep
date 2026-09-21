@@ -6,18 +6,19 @@ Breeze / Timer 1H / Timer 4H / Light colour, and a timer countdown sensor.
 """
 
 import esphome.codegen as cg
-from esphome.components import button, fan, light, sensor, switch
+from esphome.components import button, fan, light, sensor, switch, text_sensor
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
     CONF_ID,
     CONF_NAME,
     ENTITY_CATEGORY_CONFIG,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 from esphome import pins
 
 CODEOWNERS = ["@meirhalachmi"]
-AUTO_LOAD = ["button", "fan", "light", "sensor", "switch"]
+AUTO_LOAD = ["button", "fan", "light", "sensor", "switch", "text_sensor"]
 
 CONF_SCK_PIN = "sck_pin"
 CONF_MISO_PIN = "miso_pin"
@@ -30,6 +31,7 @@ CONF_PARITY = "parity"
 CONF_DIM_STEPS = "dim_steps"
 CONF_LEARN_MODE = "learn_mode"
 CONF_SYNC_ONLY = "sync_only"
+CONF_LAST_HEARD = "last_heard"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_BREEZE = "breeze"
@@ -122,6 +124,13 @@ CONFIG_SCHEMA = cv.All(
             ): switch.switch_schema(
                 PacificSwitch, icon="mdi:sync", entity_category=ENTITY_CATEGORY_CONFIG
             ),
+            # Learn Mode reports each remote heard here, ready to copy into
+            # `fans:`, so finding an address does not need the logs.
+            cv.Optional(
+                CONF_LAST_HEARD, default={CONF_NAME: "Last Heard"}
+            ): text_sensor.text_sensor_schema(
+                icon="mdi:access-point", entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+            ),
             cv.Optional(CONF_FANS, default=[]): cv.ensure_list(FAN_ENTRY_SCHEMA),
         }
     ).extend(cv.COMPONENT_SCHEMA),
@@ -149,6 +158,9 @@ async def to_code(config):
     for kind, key in enumerate((CONF_LEARN_MODE, CONF_SYNC_ONLY)):
         sw = await switch.new_switch(config[key], radio, kind)
         await cg.register_component(sw, config[key])
+
+    last_heard = await text_sensor.new_text_sensor(config[CONF_LAST_HEARD])
+    cg.add(radio.set_last_heard(last_heard))
 
     for entry in config[CONF_FANS]:
         remote = cg.new_Pvariable(

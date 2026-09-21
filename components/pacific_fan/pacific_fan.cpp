@@ -248,10 +248,18 @@ void PacificFanRadio::on_frame_(uint32_t f) {
     bool repeat = f == this->learn_last_ && now - this->learn_last_ms_ < PRESS_GAP_MS;
     this->learn_last_ = f;
     this->learn_last_ms_ = now;
-    if (!repeat)
+    if (!repeat) {
       ESP_LOGI(TAG, "LEARN address=0x%05X parity=%s command=0x%03X (%s)%s", (unsigned) address,
                total_even ? "even" : "odd", cmd, command_name(cmd),
                remote ? (valid ? "" : "  [known address, wrong parity]") : "  [unknown address]");
+      // Shown in Home Assistant in the form the config wants it.
+      if (this->last_heard_ != nullptr) {
+        char buf[96];
+        snprintf(buf, sizeof(buf), "address: 0x%05X, parity: %s  (%s)", (unsigned) address,
+                 total_even ? "even" : "odd", command_name(cmd));
+        this->last_heard_->publish_state(buf);
+      }
+    }
   }
   // Only valid frames take part in press detection: a corrupted frame, or
   // another fan's remote, must not reset a press that is still arriving.
