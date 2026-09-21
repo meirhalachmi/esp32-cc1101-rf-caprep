@@ -1,125 +1,178 @@
 # esp32-cc1101-rf-caprep
-ESP32 + CC1101 RF signal capture and replay tool. Record, analyze, and retransmit radio frequency signals using the ESP32 microcontroller paired with a CC1101 sub-GHz transceiver module.
+
+Control **Pacific ceiling fans** (433.92 MHz RF remotes) from Home Assistant
+with an ESP32 and a CC1101. The fan, light, dimmer, direction and timers all
+become Home Assistant entities, and the original remotes keep working: the
+controller listens to them and keeps Home Assistant in sync.
 
 <p style="text-align: center;">
     <img src="resources/module.jpeg" width="50%"/>
 </p>
 
-## Update
+## What you get, per fan
 
-The project has been rebuilt on **ESPHome**, replacing the standalone Arduino sketch. The new version decodes the fan RF protocol (29-bit OOK messages) and sends targeted commands instead of blindly replaying captured timings. Works specifically on 'Pacific' ceiling fans, but might work on other controllers as well. This gives native Home Assistant integration via the ESPHome API, OTA updates, a built-in web UI, and a captive portal fallback — with no REST glue needed.
+| Entity | What it does |
+|---|---|
+| `fan` | On/off, 6 speeds, direction |
+| `light` | On/off and a brightness slider mapped onto the dimmer steps |
+| `button` × 4 | Breeze, Timer 1H, Timer 4H, Light colour |
+| `sensor` | Minutes left on the fan's own timer |
 
-The original Arduino capture/replay tool (`server.ino`) is still included for general-purpose RF signal recording and analysis.
+Plus two switches for the whole controller: **Learn Mode** (log every frame
+heard, to find a remote's address) and **Sync Only** (re-align the tracked
+state without transmitting).
 
-## Features
+## Hardware
 
-### ESPHome Fan Controller (`esphome/`)
-- Decoded 433.92 MHz OOK protocol: 20-bit device address + 9-bit command + parity
-- Per-fan speed control (6 speeds), on/off toggle, light, and direction inversion
-- Native Home Assistant integration via ESPHome API (no REST commands required)
-- Built-in web server for local control
-- RF signal recorder with automatic protocol decoding
-- Raw command sender for protocol exploration
-- Captive portal fallback when WiFi is unavailable
-- OTA firmware updates
-
-### Legacy Arduino Sketch (`server.ino`)
-- Generic RF signal capture and replay
-- Web-based UI with signal management (record, transmit, rename, delete)
-- SPIFFS signal persistence with JSON serialization
-- Backup import/export (text dump format)
-- REST API for Home Assistant integration
-- mDNS discovery (`esp32-rf.local`)
-
-## Hardware Requirements
-
-- ESP32 development board
-- CC1101 RF transceiver module
-- Appropriate antenna for 433.92 MHz
-
-## Pin Configuration
+- ESP32 dev board
+- CC1101 module with a 433 MHz antenna
 
 ```
-ESP32 Pin  ->  CC1101 Pin
-18 (SCK)   ->  SCK
-19 (MISO)  ->  MISO
-23 (MOSI)  ->  MOSI
-5  (CS)    ->  CSN
-25         ->  GDO0 (TX data)
-26         ->  GDO2 (RX data)
+ESP32 GPIO  ->  CC1101
+18          ->  SCK
+19          ->  MISO (SO)
+23          ->  MOSI (SI)
+5           ->  CSN
+25          ->  GDO0   (TX data)
+26          ->  GDO2   (RX data)
+3V3 / GND   ->  VCC / GND
 ```
 
-## ESPHome Setup (Recommended)
+Any pins can be used; set them in the config (below).
 
-### Prerequisites
+## Quick start
 
-- [ESPHome](https://esphome.io/) installed (`pip install esphome`)
-
-### Installation
-
-1. Edit `esphome/esphome_fan_controller.yaml` and set your WiFi credentials:
+1. Copy [examples/fan-controller.yaml](examples/fan-controller.yaml) and create
+   a `secrets.yaml` next to it with `wifi_ssid`, `wifi_password`, `api_key`
+   (generate one with `openssl rand -base64 32`) and `ota_password`.
+2. Flash it: `esphome run fan-controller.yaml`, and add the device in Home
+   Assistant (Settings → Devices & Services → ESPHome).
+3. **Find each remote's address**: turn on **Learn Mode**, press any button on
+   the remote, and read the log:
+   ```
+   LEARN address=0xE5D7C parity=even command=0x191 (Power)  [unknown address]
+   ```
+4. Add one entry per fan and flash again:
    ```yaml
-   wifi:
-     ssid: "YOUR_SSID"
-     password: "YOUR_PASSWORD"
+   pacific_fan:
+     fans:
+       - name: Bedroom
+         address: 0xE5D7C
+         parity: even
    ```
-2. If using Home Assistant encryption, update the API key or remove the `encryption` block.
-3. Flash the ESP32:
-   ```bash
-   cd esphome
-   esphome run esphome_fan_controller.yaml
-   ```
-4. The device will appear automatically in Home Assistant if you have the ESPHome integration.
+5. **Calibrate once**: the controller cannot ask a fan what it is doing, so
+   tell it. Turn on **Sync Only**, set the fan and light entities to match the
+   room, turn Sync Only off.
 
-### Mapping the Protocol (`esphome_rf_capture.yaml`)
+The component is loaded straight from this repository:
 
-A second, receive-only ESPHome build is included for protocol work. It parks the
-CC1101 in RX, decodes every OOK frame it hears, and logs the address, command,
-parity evidence and measured pulse timings for each one. Use it to learn a new
-fan's address or to map a remote button that is not in the table above. See
-[CAPTURE_PROCEDURE.md](esphome/CAPTURE_PROCEDURE.md).
+```yaml
+external_components:
+  - source: github://meirhalachmi/esp32-cc1101-rf-caprep
+    components: [pacific_fan]
+```
 
-### Adding a New Fan
+## Configuration
 
-1. Use the "Record RF Signal" button (web UI or HA) to capture a signal from the fan's remote.
-2. Check the ESPHome logs for the decoded address:
-   ```
-   [cc1101] === DECODED FRAME ===
-   [cc1101]   Address (20b): 0xABCDE
-   [cc1101]   Command (9b) : 0x1E8
-   ```
-3. Copy an existing fan block in `esphome_fan_controller.yaml`, update the name, id, and address.
-4. Re-flash with `esphome run`.
+```yaml
+pacific_fan:
+  id: fan_radio          # optional, for id(fan_radio).send(address, command)
+  sck_pin: 18            # all pins optional, defaults shown
+  miso_pin: 19
+  mosi_pin: 23
+  cs_pin: 5
+  gdo0_pin: 25
+  gdo2_pin: 26
+  learn_mode:            # optional, rename or hide the switches
+    name: Learn Mode
+  sync_only:
+    name: Sync Only (no RF)
+  fans:
+    - name: Bedroom      # prefix for every entity of this fan
+      address: 0xE5D7C   # 20-bit remote address, from Learn Mode
+      parity: even       # even | odd, from Learn Mode
+      dim_steps: 8       # optional, how many steps the dimmer has
+      # Every entity can be customised, e.g.:
+      # fan:   { name: Bedroom Ceiling Fan, icon: mdi:ceiling-fan }
+      # light: { name: Bedroom Ceiling Light }
+      # breeze / timer_1h / timer_4h / colour / timer_remaining: { ... }
+```
 
-### Device Addresses
-See the back of your remote. They usually put a sticker on with the device ID in hexadecimal
+## Dashboard
 
-### RF Protocol Details
+[examples/dashboard-room-view.yaml](examples/dashboard-room-view.yaml) is a
+ready-made Home Assistant view for one room (light, fan with quick actions,
+optionally the AC). Replace the entity prefix and paste it under `views:` in
+the dashboard's raw configuration editor, once per room.
 
-Each message is a 30-bit OOK frame: 20-bit device address + 9-bit command + 1 even-parity bit.
+## How it works
 
-| Command   | Code      | Binary      |
-|-----------|-----------|-------------|
-| Speed 1   | `0x1E8`   | `111101000` |
-| Speed 2   | `0x1C8`   | `111001000` |
-| Speed 3   | `0x1A9`   | `110101001` |
-| Speed 4   | `0x189`   | `110001001` |
-| Speed 5   | `0x16A`   | `101101010` |
-| Speed 6   | `0x14A`   | `101001010` |
-| Toggle    | `0x191`   | `110010001` |
-| Light     | `0x1B1`   | `110110001` |
-| Invert    | `0x12B`   | `100101011` |
+**The protocol.** Each press sends a 30-bit PWM-OOK frame, most significant
+bit first: 20-bit address, 9-bit command, 1 check bit. A `1` is a ~1090 µs mark
+and a ~375 µs space, a `0` the reverse; frames repeat ~9 times with a ~5.6 ms
+gap, and each press is keyed twice ~200 ms apart. The check bit makes the count
+of ones even on some remotes and odd on others, hence `parity:` per fan.
 
-OOK timing: ~300 us (short/0), ~1150 us (long/1), ~6000 us inter-frame gap, 12 preamble pulses, 20 repetitions per transmission.
+| Button | Command | Button | Command |
+|---|---|---|---|
+| Power (toggle) | `0x191` | F/R (toggle) | `0x12B` |
+| Breeze | `0x10B` | Timer 1H | `0x095` |
+| Speed 1 | `0x1E8` | Timer 4H | `0x152` |
+| Speed 2 | `0x1C8` | Light (toggle) | `0x1B1` |
+| Speed 3 | `0x1A9` | Light colour | `0x1D0` |
+| Speed 4 | `0x189` | LED- | `0x0F4` |
+| Speed 5 | `0x16A` | LED+ | `0x133` |
+| Speed 6 | `0x14A` | | |
 
-The 30th bit is an **odd**-parity bit: the total number of `1` bits across the
-whole 30-bit frame is odd.  `send_command()` defaults to `odd_parity = true`.
+**Tracked state.** Power, F/R and the light are toggles and the dimmer only
+steps, so the controller keeps what it believes each fan is doing (saved to
+flash) and sends only what is needed to reach what Home Assistant asks for.
+Turning a fan on is done with a speed command, which also switches it on, so
+it never depends on guessing the toggle.
 
-Speeds 3-6, Invert and the remaining remote buttons (Breeze, timers, LED
-dimming, light colour) are **not yet verified** against these receivers - see
-[esphome/CAPTURE_PROCEDURE.md](esphome/CAPTURE_PROCEDURE.md).
+**Listening.** The CC1101 stays in receive mode. A press counts once two
+identical frames agree, with the right address and check bit; everything else
+is dropped. Presses on the original remotes update the entities, and the
+controller stops listening while it transmits so it never hears itself.
 
-## Legacy Arduino Setup
+**Details worth knowing:**
+- A quick off/on of the light changes its colour on these fans, so light
+  toggles from Home Assistant are kept at least 3 s apart.
+- The dimmer has no absolute command. Brightness maps to an estimated step;
+  going to 100% or the minimum sends a couple of extra presses so the estimate
+  re-anchors.
+- The fan's own timer switches it off silently; the controller follows the
+  countdown and marks the fan off when it ends (not across a controller reboot).
+
+## Other fans
+
+If a fan does not respond, its remote may use different timings or codes.
+[esphome/esphome_rf_capture.yaml](esphome/esphome_rf_capture.yaml) is a
+receive-only build that logs every frame with its pulse timings; follow
+[CAPTURE_PROCEDURE.md](esphome/CAPTURE_PROCEDURE.md) to map a remote.
+
+## Troubleshooting
+
+- **`CC1101 not detected`** in the log: check the SPI wiring and 3.3 V power.
+- **Presses on the remote are not picked up**: turn on Learn Mode and check
+  the frames arrive; move the antenna or the controller closer.
+- **Home Assistant shows the wrong state**: recalibrate with Sync Only.
+- **WiFi fails**: the device opens a fallback access point if you add `ap:`
+  under `wifi:` together with `captive_portal:`.
+
+## Credits
+
+- CC1101 driver: [CC1101-ESP-Arduino](https://github.com/wladimir-computin/CC1101-ESP-Arduino)
+  (MIT), vendored in `components/pacific_fan` because ESPHome's ESP-IDF build
+  rejects its library manifest.
+
+---
+
+## Legacy Arduino capture/replay tool (`server.ino`)
+
+The original general-purpose RF recorder is still included.
+
+### Setup
 
 ### Dependencies
 
@@ -137,34 +190,10 @@ dimming, light colour) are **not yet verified** against these receivers - see
 3. Open `server.ino`, update WiFi credentials, and upload to ESP32
 4. Access the web interface at `http://esp32-rf.local`
 
-### Home Assistant Integration (Legacy)
+### Home Assistant integration
 
 The legacy Arduino sketch exposes a REST API for signal replay. See [homeassistant.yaml](/homeassistant.yaml) for an example configuration.
 
 <p style="text-align: center;">
     <img src="resources/ha.jpeg" width="30%"/>
 </p>
-
-## Technical Details
-
-- RF Frequency: 433.92 MHz
-- Data Rate: 2.4 kbps
-- Modulation: ASK/OOK
-- TX Power: +10 dBm
-- RX Bandwidth: 162 kHz
-- Maximum captured transitions: 512
-
-## Troubleshooting
-
-1. **CC1101 not detected** — check SPI wiring. The ESPHome logs will show `CC1101 not detected (ver=0x00)` if communication fails.
-2. **No signal captured** — ensure the remote is within range and operating at 433.92 MHz. The recorder has a 10-second timeout.
-3. **WiFi connection fails** — verify credentials. The ESPHome build falls back to a captive portal AP (`Fan-Controller-AP` / `fan12345678`). The Arduino build halts after 30 seconds.
-4. **Fan doesn't respond** — confirm the correct device address. Use the recorder to capture and decode a fresh signal from the remote.
-
-## License
-
-This project is open-source. Feel free to modify and distribute as needed.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or create issues for bugs and feature requests.

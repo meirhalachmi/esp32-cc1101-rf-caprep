@@ -1,6 +1,6 @@
 #pragma once
 #include "esphome.h"
-#include "CC1101_ESP_Arduino.h"
+#include "cc1101_esp_arduino.h"
 #include "soc/gpio_struct.h"
 
 // ============================================================

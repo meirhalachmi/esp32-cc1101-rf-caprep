@@ -1,0 +1,103 @@
+# A Home Assistant dashboard view for one room: light on top, then the fan
+# with its quick actions, then (optionally) the AC.
+#
+# How to use:
+#   1. Replace "bedroom" with your fan's entity prefix. With the device named
+#      "RF Fan Controller" and a fan named "Bedroom", the entities are e.g.
+#      fan.rf_fan_controller_bedroom_fan - check Settings -> Entities.
+#   2. Replace the climate / temperature / humidity entities with your own,
+#      or delete those cards.
+#   3. Dashboard -> Edit -> Raw configuration editor, and paste this as an
+#      item under `views:` (one per room).
+title: Bedroom
+path: bedroom
+icon: mdi:bed
+type: sections
+max_columns: 2
+sections:
+  - type: grid
+    cards:
+      - type: heading
+        heading: Bedroom
+        icon: mdi:bed
+        badges:
+          - type: entity
+            entity: sensor.bedroom_temperature   # optional
+            show_state: true
+          - type: entity
+            entity: sensor.bedroom_humidity      # optional
+            show_state: true
+
+      - type: tile
+        entity: light.rf_fan_controller_bedroom_light
+        name: Light
+        grid_options: { columns: 12 }
+        features:
+          - type: light-brightness
+      - type: tile
+        entity: button.rf_fan_controller_bedroom_light_colour
+        name: Colour
+        icon: mdi:palette
+        hide_state: true
+        grid_options: { columns: 12 }
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target: { entity_id: button.rf_fan_controller_bedroom_light_colour }
+
+      - type: tile
+        entity: fan.rf_fan_controller_bedroom_fan
+        name: Fan
+        grid_options: { columns: 12 }
+        features:
+          - type: fan-speed
+            style: icons
+          - type: fan-direction
+      - type: tile
+        entity: sensor.rf_fan_controller_bedroom_fan_timer
+        name: Fan timer left
+        grid_options: { columns: 12 }
+        visibility:
+          - condition: numeric_state
+            entity: sensor.rf_fan_controller_bedroom_fan_timer
+            above: 0
+      - type: tile
+        entity: button.rf_fan_controller_bedroom_fan_breeze
+        name: Breeze
+        vertical: true
+        hide_state: true
+        grid_options: { columns: 4 }
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target: { entity_id: button.rf_fan_controller_bedroom_fan_breeze }
+      - type: tile
+        entity: button.rf_fan_controller_bedroom_fan_timer_1h
+        name: 1H
+        vertical: true
+        hide_state: true
+        grid_options: { columns: 4 }
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target: { entity_id: button.rf_fan_controller_bedroom_fan_timer_1h }
+      - type: tile
+        entity: button.rf_fan_controller_bedroom_fan_timer_4h
+        name: 4H
+        vertical: true
+        hide_state: true
+        grid_options: { columns: 4 }
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target: { entity_id: button.rf_fan_controller_bedroom_fan_timer_4h }
+
+      - type: tile                              # optional
+        entity: climate.bedroom
+        name: AC
+        grid_options: { columns: 12 }
+        features:
+          - type: climate-hvac-modes
+            style: icons
+            hvac_modes: [off, cool, heat, fan_only, dry]
+          - type: target-temperature

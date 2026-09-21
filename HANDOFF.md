@@ -5,8 +5,11 @@ OOK, driven by one ESP32 + CC1101 through ESPHome.
 
 ## Status (2026-09-21)
 
-All three rooms are in `esphome_fan_controller.yaml` (OTA at 192.168.1.202,
-device `fan-controller`), each one `fan_room.yaml` package:
+The controller is now an ESPHome external component,
+`components/pacific_fan` (C++ + Python); `esphome/esphome_fan_controller.yaml`
+is this house's config (OTA at 192.168.1.202, device `fan-controller`), one
+`fans:` entry per room.  README.md is the user-facing documentation and
+`examples/` holds a minimal config and a dashboard view for others.
 
 | Room | Address | Parity (total ones) |
 |---|---|---|
@@ -17,7 +20,7 @@ device `fan-controller`), each one `fan_room.yaml` package:
 Girls' room is verified end to end (TX moves the real fan and light, remote
 presses update HA without being echoed).  Office and ofek were mapped with
 Learn Mode; their command codes match the girls' remote.  A new room is one
-more package entry.
+more `fans:` entry.
 
 ## Measured (capture of the girls' remote, every button pressed twice)
 
@@ -40,8 +43,10 @@ more package entry.
 
 ## Design as built
 
-- Physical state (`*_phys` globals, restored from flash every 5s) is kept
-  apart from the HA entities; HA changes are reconciled against it.  Power and
+- Physical state (a per-remote preference, flushed every 5s) is kept apart
+  from the HA entities; HA changes are reconciled against it.  Moving to the
+  component changed the preference keys, so state was reset once on
+  2026-09-21 and needed a Sync Only recalibration.  Power and
   F/R are toggles, so off and direction changes are only sent when they differ.
   A speed command both sets speed and turns the fan on.
 - RX: CC1101 always in RX, ISR on GDO2 into a ring buffer, decoded in a 20ms
@@ -73,12 +78,13 @@ more package entry.
 - Dimmer step count is still a guess (8).
 - Unknown what cancels the fan's own timer. The countdown is cleared only
   when the fan goes off; if a speed press also cancels it on the fan, clear
-  `<room>_timer_end_ms` on speed commands too (fan_room.yaml).
+  `timer_end_ms_` on speed commands too (`PacificRemote::on_rx` / `fan_control`).
 
 ## Toolchain notes
 
 - ESPHome 2026.9 builds ESP32 with the ESP-IDF toolchain, which rejects the
-  CC1101 library's manifest, so the library is vendored in `esphome/cc1101_lib/`.
+  CC1101 library's manifest, so the library is vendored in
+  `components/pacific_fan/` (the capture firmware includes it from there).
 - WiFi credentials live in `esphome/secrets.yaml` (gitignored).
 
 ## Untouched on purpose

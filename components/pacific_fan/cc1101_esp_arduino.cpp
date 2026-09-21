@@ -14,7 +14,7 @@
  *  CC1101 ESP32/ESP8266/Arduino Driver. Mod by wladimir-computin.
  * 
  */
-#include "CC1101_ESP_Arduino.h"
+#include "cc1101_esp_arduino.h"
 
 /****************************************************************/
 

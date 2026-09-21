@@ -19,8 +19,8 @@ esphome:
   includes:
     # Vendored: the upstream manifest declares platform "esp32", which
     # ESPHome's ESP-IDF toolchain rejects (it wants "espressif32").
-    - cc1101_lib/CC1101_ESP_Arduino.h
-    - cc1101_lib/CC1101_ESP_Arduino.cpp
+    - ../components/pacific_fan/cc1101_esp_arduino.h
+    - ../components/pacific_fan/cc1101_esp_arduino.cpp
     - cc1101_rf_capture.h
   libraries:
     - SPI

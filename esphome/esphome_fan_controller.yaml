@@ -1,49 +1,29 @@
 # ============================================================
-# ESPHome RF Fan Controller - CC1101 @ 433.92 MHz ASK/OOK
+# RF fan controller for three Pacific ceiling fans
 # ============================================================
-# Protocol and command table: cc1101_fan_controller.h
+# Everything fan-specific lives in the pacific_fan component
+# (../components/pacific_fan); see the README for how it works.
 #
-# Wiring (ESP32 -> CC1101 module):
+# Wiring (ESP32 -> CC1101), the component's defaults:
 #   GPIO 18 -> SCK        GPIO 5  -> CSN
 #   GPIO 19 -> MISO       GPIO 25 -> GDO0 (TX data)
 #   GPIO 23 -> MOSI       GPIO 26 -> GDO2 (RX data)
-#
-# State model
-# -----------
-# The fans have no discrete "off": power is a toggle.  So for every fan we
-# keep what we believe the *physical* fan is doing (the *_phys globals,
-# restored from flash) separately from what Home Assistant asks for (the
-# fan / light entities).  An HA change is reconciled against the physical
-# state and only the commands needed to get there are sent.  A press on the
-# original remote updates the physical state first and then the entity, so
-# the reconcile that follows finds nothing to do and sends nothing.
-#
-# Rooms (packages below, one fan_room.yaml each):
-#   girls  -> 0xE5D7C  (even parity)
-#   office -> 0xAACAC  (odd parity)
-#   ofek   -> 0xB19BC  (even parity)
 # ============================================================
 
 esphome:
   name: fan-controller
   friendly_name: RF Fan Controller
-  includes:
-    # Vendored: the upstream manifest declares platform "esp32", which
-    # ESPHome's ESP-IDF toolchain rejects (it wants "espressif32").
-    - cc1101_lib/CC1101_ESP_Arduino.h
-    - cc1101_lib/CC1101_ESP_Arduino.cpp
-    - cc1101_fan_controller.h
-  libraries:
-    - SPI
-  on_boot:
-    - priority: 600
-      then:
-        - lambda: 'fan_rf.begin();'
 
 esp32:
   board: esp32dev
   framework:
     type: arduino
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [pacific_fan]
 
 logger:
 
@@ -64,46 +44,29 @@ wifi:
 
 captive_portal:
 
-# State must survive a reboot: without it the power toggle has nothing to
-# reason about.  The default 1-minute flush lost changes on an early reboot.
-preferences:
-  flash_write_interval: 5s
-
 web_server:
   port: 80
 
-interval:
-  - interval: 20ms
-    then:
-      - lambda: 'fan_rf.poll();'
+# The fans' state must survive a reboot: power and F/R are toggles, so
+# without it there is nothing to reason about.
+preferences:
+  flash_write_interval: 5s
 
-# ============================================================
-# Physical state, as last commanded or heard
-# ============================================================
-globals:
-  # While on, entity changes only re-align the physical state; nothing is
-  # transmitted.  Used to tell the controller what the room really looks like.
-  - id: sync_only
-    type: bool
-    restore_value: false
-    initial_value: "false"
+pacific_fan:
+  id: fan_radio
+  fans:
+    - name: Girls
+      address: 0xE5D7C
+      parity: even
+    - name: Office
+      address: 0xAACAC
+      parity: odd
+    - name: Ofek
+      address: 0xB19BC
+      parity: even
 
-# ============================================================
-# Rooms - see fan_room.yaml
-# ============================================================
-packages:
-  girls: !include
-    file: fan_room.yaml
-    vars: { room: girls, name: Girls, addr: "0xE5D7C", even_parity: "true" }
-  office: !include
-    file: fan_room.yaml
-    vars: { room: office, name: Office, addr: "0xAACAC", even_parity: "false" }
-  ofek: !include
-    file: fan_room.yaml
-    vars: { room: ofek, name: Ofek, addr: "0xB19BC", even_parity: "true" }
-
+# ── Raw sender, for mapping unknown buttons ──
 button:
-  # ── Raw sender, for mapping new buttons ──
   - platform: template
     name: "Send Raw Command"
     icon: "mdi:send"
@@ -111,7 +74,7 @@ button:
     on_press:
       - lambda: |-
           uint32_t addr = std::strtoul(id(raw_target).current_option().c_str(), nullptr, 16);
-          fan_rf.send(addr, (uint16_t) id(raw_cmd_code).state);
+          id(fan_radio).send(addr, (uint16_t) id(raw_cmd_code).state);
 
 select:
   - platform: template
@@ -136,24 +99,3 @@ number:
     step: 1
     initial_value: 0
     mode: box
-
-switch:
-  - platform: template
-    name: "Sync Only (no RF)"
-    icon: "mdi:sync"
-    entity_category: config
-    lambda: 'return id(sync_only);'
-    turn_on_action:
-      - lambda: 'id(sync_only) = true;'
-    turn_off_action:
-      - lambda: 'id(sync_only) = false;'
-  - platform: template
-    name: "Learn Mode"
-    icon: "mdi:school"
-    entity_category: config
-    optimistic: true
-    restore_mode: ALWAYS_OFF
-    turn_on_action:
-      - lambda: 'fan_rf.learn_mode = true;'
-    turn_off_action:
-      - lambda: 'fan_rf.learn_mode = false;'
