@@ -13,10 +13,18 @@ controller listens to them and keeps Home Assistant in sync.
 
 ## Tested with
 
+<img src="resources/remote.jpg" width="160" align="right" alt="The 15-button Pacific remote"/>
+
 **Pacific Strong 42" CCT** DC ceiling fans with the LED light and the
 15-button remote (sold in Israel by מחסני תאורה, SKU 75372015). Other Pacific
 models with a similar remote are likely to work; if yours does not, see
 [Other fans](#other-fans).
+
+If your remote looks like this one - power and breeze on top, speeds 1-6
+around F/R, 1H / 4H timers, light and colour, LED- / LED+ - it is the same
+family.
+
+<br clear="right"/>
 
 ## What you get, per fan
 
